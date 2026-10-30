@@ -238,7 +238,8 @@ const FloatShell: React.FC = () => {
   useEffect(() => {
     const checkAlerts = () => {
       const now = Date.now();
-      const todayStr = new Date(now).toISOString().slice(0, 10);
+      const d = new Date(now);
+      const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
       // 1. Meeting Alerts (D-01)
       for (const event of calendar.events) {
@@ -436,8 +437,6 @@ const FloatShell: React.FC = () => {
     }
     setSurfaceInitialTab("home");
 
-    if (isDraggingRef.current) return;
-    clearIdleToOrbTimer();
     // The double-click (pill -> orb) gesture only exists in the orb modes.
     // In Island mode a click opens at once instead of waiting it out.
     if (settingsRef.current.idleBehavior === "alwaysPill") {

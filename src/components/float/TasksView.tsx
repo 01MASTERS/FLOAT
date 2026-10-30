@@ -14,6 +14,13 @@ export const TasksView: React.FC = () => {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [shakeTaskId, setShakeTaskId] = useState<string | null>(null);
+  const shakeTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current);
+    };
+  }, []);
   const editInputRef = useRef<HTMLInputElement>(null);
 
   const startEdit = (task: Task) => {
@@ -34,7 +41,8 @@ export const TasksView: React.FC = () => {
     const trimmed = editTitle.trim().slice(0, 200);
     if (!trimmed) {
       setShakeTaskId(task.id);
-      setTimeout(() => setShakeTaskId(null), 400);
+      if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current);
+      shakeTimerRef.current = setTimeout(() => setShakeTaskId(null), 400);
       cancelEdit();
       return;
     }
@@ -47,8 +55,10 @@ export const TasksView: React.FC = () => {
   const handleEditKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, task: Task) => {
     e.stopPropagation();
     if (e.key === "Enter") {
+      e.preventDefault();
       commitEdit(task);
     } else if (e.key === "Escape") {
+      e.preventDefault();
       cancelEdit();
     }
   };
