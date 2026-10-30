@@ -11,6 +11,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 /* ------------------------------------------------------------------ */
 /*  Window management                                                  */
@@ -395,17 +396,27 @@ export interface CalendarFeedPayload {
 }
 
 export async function getCalendarEvents(
-  feedsOrUrl?: CalendarFeedPayload[] | string
+  feedsOrUrl?: CalendarFeedPayload[] | string,
+  force?: boolean
 ): Promise<CalendarEvent[]> {
   try {
     if (!feedsOrUrl) return [];
     if (typeof feedsOrUrl === "string") {
-      return await invoke<CalendarEvent[]>("get_calendar_events", { url: feedsOrUrl });
+      return await invoke<CalendarEvent[]>("get_calendar_events", { url: feedsOrUrl, force });
     }
-    return await invoke<CalendarEvent[]>("get_calendar_events", { feeds: feedsOrUrl });
+    return await invoke<CalendarEvent[]>("get_calendar_events", { feeds: feedsOrUrl, force });
   } catch (e) {
     console.error("Failed to get calendar events:", e);
     return [];
+  }
+}
+
+/** Open external links (e.g. Google Meet, Zoom, maps) safely in default browser. */
+export async function openBrowserUrl(url: string): Promise<void> {
+  try {
+    await openUrl(url);
+  } catch {
+    window.open(url, "_blank");
   }
 }
 

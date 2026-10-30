@@ -346,7 +346,9 @@ fn fetch(url: &str) -> Result<String, String> {
 pub async fn get_calendar_events(
     feeds: Option<Vec<CalendarFeedPayload>>,
     url: Option<String>,
+    force: Option<bool>,
 ) -> Result<Vec<CalendarEvent>, String> {
+    let bypass_cache = force.unwrap_or(false);
     let active_feeds: Vec<CalendarFeedPayload> = match feeds {
         Some(f) if !f.is_empty() => f
             .into_iter()
@@ -371,7 +373,7 @@ pub async fn get_calendar_events(
     let mut all_parsed_events: Vec<RawParsed> = Vec::new();
     let mut feeds_to_fetch: Vec<CalendarFeedPayload> = Vec::new();
 
-    {
+    if !bypass_cache {
         let mut cache_guard = CACHE.lock().unwrap();
         let cache_map = cache_guard.get_or_insert_with(HashMap::new);
         for feed in &active_feeds {
@@ -384,6 +386,8 @@ pub async fn get_calendar_events(
             }
             feeds_to_fetch.push(feed.clone());
         }
+    } else {
+        feeds_to_fetch = active_feeds.clone();
     }
 
     if !feeds_to_fetch.is_empty() {
