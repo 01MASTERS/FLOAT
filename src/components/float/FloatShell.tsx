@@ -89,7 +89,8 @@ const QUICK_ACTIONS_HEIGHT = 48;
 
 // Must match the native window width (window.rs) and #root's padding-top.
 const WINDOW_WIDTH = 720;
-const HIT_PADDING = 4;
+const ROOT_SCALE = 0.85;
+const HIT_BUFFER = 2; // 2px buffer to eliminate border-crossing hover jitter (Decision D-12)
 const BUBBLE_GAP = 8;
 // Long enough for the morph spring to settle before hit regions shrink.
 const MORPH_SETTLE_MS = 700;
@@ -1091,14 +1092,16 @@ const FloatShell: React.FC = () => {
     outlineRef.current?.querySelectorAll("path").forEach((path) => path.setAttribute("d", d));
     if (clipRef.current) clipRef.current.style.clipPath = `path("${d}")`;
     if (glassRef.current) {
-      const width = f.width * f.scale;
+      const width = f.width * f.scale * ROOT_SCALE;
+      const height = f.height * f.scale * ROOT_SCALE;
+      const y = f.y * ROOT_SCALE;
       setBackdrop({
         x: (WINDOW_WIDTH - width) / 2,
-        y: f.y,
+        y,
         width,
-        height: f.height * f.scale,
-        topRadius: f.top * f.scale,
-        bottomRadius: f.bottom * f.scale,
+        height,
+        topRadius: f.top * f.scale * ROOT_SCALE,
+        bottomRadius: f.bottom * f.scale * ROOT_SCALE,
       });
     }
   }, []);
@@ -1131,19 +1134,26 @@ const FloatShell: React.FC = () => {
   const prevGeometryRef = useRef({ width: islandWidth, height: islandHeight });
   useEffect(() => {
     const regionsFor = (width: number, height: number): HitRect[] => {
-      const left = (WINDOW_WIDTH - width) / 2;
+      const scaledWidth = width * ROOT_SCALE;
+      const scaledHeight = height * ROOT_SCALE;
+      const scaledLeft = (WINDOW_WIDTH - scaledWidth) / 2;
+      const scaledTop = islandTop * ROOT_SCALE;
+
       const regions: HitRect[] = [{
-        x: left - HIT_PADDING,
-        y: islandTop - HIT_PADDING,
-        width: width + HIT_PADDING * 2,
-        height: height + HIT_PADDING * 2,
+        x: Math.round(scaledLeft - HIT_BUFFER),
+        y: Math.max(0, Math.round(scaledTop - HIT_BUFFER)),
+        width: Math.round(scaledWidth + HIT_BUFFER * 2),
+        height: Math.round(scaledHeight + HIT_BUFFER * 2),
       }];
+
       if (hasBubble) {
+        const scaledBubbleSize = BUBBLE_SIZE * ROOT_SCALE;
+        const scaledBubbleGap = BUBBLE_GAP * ROOT_SCALE;
         regions.push({
-          x: left + width + BUBBLE_GAP - HIT_PADDING,
-          y: islandTop - HIT_PADDING,
-          width: BUBBLE_SIZE + HIT_PADDING * 2,
-          height: BUBBLE_SIZE + HIT_PADDING * 2,
+          x: Math.round(scaledLeft + scaledWidth + scaledBubbleGap - HIT_BUFFER),
+          y: Math.max(0, Math.round(scaledTop - HIT_BUFFER)),
+          width: Math.round(scaledBubbleSize + HIT_BUFFER * 2),
+          height: Math.round(scaledBubbleSize + HIT_BUFFER * 2),
         });
       }
       return regions;
@@ -1158,7 +1168,32 @@ const FloatShell: React.FC = () => {
     ]);
     prevGeometryRef.current = { width: islandWidth, height: islandHeight };
 
-    const settle = setTimeout(() => setHitRegions(regionsFor(islandWidth, islandHeight)), MORPH_SETTLE_MS);
+    const settle = setTimeout(() => {
+      const shellEl = shellRef.current;
+      if (shellEl) {
+        const rect = shellEl.getBoundingClientRect();
+        const liveRegions: HitRect[] = [{
+          x: Math.round(rect.left - HIT_BUFFER),
+          y: Math.max(0, Math.round(rect.top - HIT_BUFFER)),
+          width: Math.round(rect.width + HIT_BUFFER * 2),
+          height: Math.round(rect.height + HIT_BUFFER * 2),
+        }];
+
+        const bubbleEl = (shellEl.querySelector(".split-bubble") || document.querySelector(".split-bubble")) as HTMLElement | null;
+        if (bubbleEl) {
+          const bRect = bubbleEl.getBoundingClientRect();
+          liveRegions.push({
+            x: Math.round(bRect.left - HIT_BUFFER),
+            y: Math.max(0, Math.round(bRect.top - HIT_BUFFER)),
+            width: Math.round(bRect.width + HIT_BUFFER * 2),
+            height: Math.round(bRect.height + HIT_BUFFER * 2),
+          });
+        }
+        setHitRegions(liveRegions);
+      } else {
+        setHitRegions(regionsFor(islandWidth, islandHeight));
+      }
+    }, MORPH_SETTLE_MS);
     return () => clearTimeout(settle);
   }, [islandWidth, islandHeight, islandTop, hasBubble]);
 

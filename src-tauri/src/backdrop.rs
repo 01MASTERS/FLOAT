@@ -10,6 +10,15 @@
 //!
 //! Nothing is captured: DWM does the blur on the GPU, so it costs no CPU and
 //! FLOAT still appears normally in screenshots and screen sharing.
+//!
+//! ## Scale Coordination Contract (0.85 Root Sizing)
+//!
+//! Since the React overlay operates at 0.85 scale via `#root` CSS transform,
+//! `FloatShell.tsx` pre-multiplies all shape parameters (`x`, `y`, `width`,
+//! `height`, `topRadius`, `bottomRadius`) by `ROOT_SCALE = 0.85` before calling
+//! `set_backdrop`. `backdrop.rs` receives these pre-scaled logical coordinates
+//! and translates them into physical display pixels using `GetDpiForWindow(main)`,
+//! ensuring sub-pixel glass blur alignment without clipping or misalignment.
 
 use serde::Deserialize;
 use std::cell::RefCell;
