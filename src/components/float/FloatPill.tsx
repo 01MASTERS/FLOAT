@@ -1,12 +1,14 @@
 import React from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { Calendar } from "lucide-react";
 import { MediaSession } from "../../platform/media";
 import { MediaWidgetPill } from "./MediaWidgetPill";
 import { OrbNotificationState } from "./FloatOrb";
 import { AppIcon } from "./AppIcon";
 import { VolumeHud } from "./VolumeHud";
 import { IdleNotch } from "./IdleNotch";
-import { StatusActivity, TimerActivity, VolumeActivity } from "../../activities/types";
+import { CalendarAlertActivity, StatusActivity, TimerActivity, VolumeActivity } from "../../activities/types";
+import { openBrowserUrl } from "../../platform";
 import { TimerPill } from "./Timer";
 import { DropZone } from "./Shelf";
 import { StatusHud } from "./StatusHud";
@@ -24,6 +26,8 @@ interface FloatPillProps {
   volume?: VolumeActivity | null;
   status?: StatusActivity | null;
   timer?: TimerActivity | null;
+  calendarAlert?: CalendarAlertActivity | null;
+  onDismissAlert?: () => void;
   /** Files are being dragged over the notch (count), or null. */
   dropCount?: number | null;
   onVolumeChange?: (state: { level: number; muted: boolean }) => void;
@@ -41,6 +45,8 @@ export const FloatPill: React.FC<FloatPillProps> = ({
   volume = null,
   status = null,
   timer = null,
+  calendarAlert = null,
+  onDismissAlert,
   dropCount = null,
   onVolumeChange = () => {},
 }) => {
@@ -53,6 +59,8 @@ export const FloatPill: React.FC<FloatPillProps> = ({
     ? `status-${status.kind}`
     : timer
     ? "timer"
+    : calendarAlert
+    ? `calendar-alert-${calendarAlert.alertType}`
     : isNotificationActive && notification?.hasNotification
     ? "notification"
     : media?.hasMedia
@@ -85,6 +93,52 @@ export const FloatPill: React.FC<FloatPillProps> = ({
           <StatusHud activity={status} />
         ) : timer ? (
           <TimerPill state={timer.state} />
+        ) : calendarAlert ? (
+          <div className={`float-pill-calendar-alert ${calendarAlert.alertType}`}>
+            <div className="cal-alert-icon-wrap">
+              {calendarAlert.alertType === "birthday" ? (
+                <span className="cal-alert-cake" aria-hidden="true">🎂</span>
+              ) : (
+                <div className="cal-alert-cat-icon">
+                  <Calendar size={15} strokeWidth={2.4} />
+                  {calendarAlert.event.feedColor && (
+                    <span
+                      className="cal-alert-dot"
+                      style={{ backgroundColor: calendarAlert.event.feedColor }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="cal-alert-text">
+              <span className="cal-alert-title">{calendarAlert.event.title}</span>
+              <span className="cal-alert-sub">
+                {calendarAlert.alertType === "birthday"
+                  ? "Birthday today!"
+                  : calendarAlert.alertType === "meeting_5m"
+                  ? "Starts in 5m"
+                  : "Starting now"}
+              </span>
+            </div>
+            {calendarAlert.meetingLink && (
+              <button
+                type="button"
+                className="cal-alert-join-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openBrowserUrl(calendarAlert.meetingLink!.url);
+                  onDismissAlert?.();
+                }}
+                data-no-drag="true"
+                title={`Join ${calendarAlert.meetingLink.label}`}
+              >
+                {calendarAlert.meetingLink.type === "meet" ? "Join Meet"
+                  : calendarAlert.meetingLink.type === "zoom" ? "Join Zoom"
+                  : calendarAlert.meetingLink.type === "teams" ? "Join Teams"
+                  : "Join"}
+              </button>
+            )}
+          </div>
         ) : isNotificationActive && notification?.hasNotification ? (
           <div className="float-pill-notification-banner">
             <div className="pill-notif-app-indicator">

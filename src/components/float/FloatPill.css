@@ -171,3 +171,103 @@
   transform-origin: 50% 0%;
   will-change: opacity, transform, filter;
 }
+
+/* Calendar Alert in Pill mode */
+.float-pill-calendar-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.cal-alert-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.cal-alert-cat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2, var(--float-text-secondary));
+  position: relative;
+}
+
+.cal-alert-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+}
+
+.cal-alert-cake {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.cal-alert-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.cal-alert-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-1, var(--float-text-primary));
+}
+
+.cal-alert-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 450;
+  color: var(--text-2, var(--float-text-secondary));
+}
+
+.float-pill-calendar-alert.birthday .cal-alert-sub {
+  color: var(--orange, #ff9f0a);
+  font-weight: 550;
+}
+
+.cal-alert-join-btn {
+  background: rgba(10, 132, 255, 0.22);
+  color: #fff;
+  border: 1px solid rgba(10, 132, 255, 0.4);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.cal-alert-join-btn:hover {
+  background: rgba(10, 132, 255, 0.38);
+  border-color: rgba(10, 132, 255, 0.6);
+}
+
+.cal-alert-join-btn:active {
+  transform: scale(0.96);
+}

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, Calendar, CircleCheck, House, Inbox, SlidersHorizontal, Timer } from "lucide-react";
 import { MediaSession, MultiSessionState } from "../../platform/media";
@@ -17,6 +17,7 @@ import "./FloatSurface.css";
 
 interface FloatSurfaceProps {
   onCollapse: () => void;
+  initialTab?: SurfaceTab;
   media: MediaSession | null;
   multiState?: MultiSessionState | null;
   onSelectSession?: (sessionId: string) => void;
@@ -49,6 +50,7 @@ const tabTransition = { duration: 0.18, ease: [0.16, 1, 0.3, 1] as const };
 
 export const FloatSurface: React.FC<FloatSurfaceProps> = ({
   onCollapse,
+  initialTab,
   media,
   multiState,
   onSelectSession,
@@ -57,7 +59,13 @@ export const FloatSurface: React.FC<FloatSurfaceProps> = ({
   onClearAllNotifications = () => {},
   focusActive = false,
 }) => {
-  const [activeTab, setActiveTab] = useState<SurfaceTab>("home");
+  const [activeTab, setActiveTab] = useState<SurfaceTab>(initialTab ?? "home");
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
   const [welcome, setWelcome] = useState(shouldShowWelcome);
 
   const tabButton = (tab: BarTab) => {
