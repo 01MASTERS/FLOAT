@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, CircleCheck, House, Inbox, SlidersHorizontal, Timer } from "lucide-react";
+import { Bell, Calendar, CircleCheck, House, Inbox, SlidersHorizontal, Timer } from "lucide-react";
 import { MediaSession, MultiSessionState } from "../../platform/media";
 import { NotificationItem } from "../../platform";
 import { HomeView } from "./HomeView";
+import { CalendarView } from "./CalendarView";
 import { TrayView } from "./TrayView";
 import { TasksView } from "./TasksView";
 import { TimerView } from "./TimerView";
@@ -26,12 +27,13 @@ interface FloatSurfaceProps {
 }
 
 /** "settings" has no icon of its own; it opens from Controls. */
-export type SurfaceTab = "home" | "tray" | "tasks" | "timer" | "notifications" | "controls" | "settings";
+export type SurfaceTab = "home" | "calendar" | "tray" | "tasks" | "timer" | "notifications" | "controls" | "settings";
 
 type BarTab = Exclude<SurfaceTab, "settings">;
 
 const TABS: Record<BarTab, { label: string; Icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = {
   home: { label: "Home", Icon: House },
+  calendar: { label: "Calendar", Icon: Calendar },
   tray: { label: "Tray", Icon: Inbox },
   tasks: { label: "Tasks", Icon: CircleCheck },
   timer: { label: "Timer", Icon: Timer },
@@ -40,7 +42,7 @@ const TABS: Record<BarTab, { label: string; Icon: React.ComponentType<{ size?: n
 };
 
 // Things you do on the left; system things on the right.
-const LEFT_TABS: BarTab[] = ["home", "tray", "tasks", "timer"];
+const LEFT_TABS: BarTab[] = ["home", "calendar", "tray", "tasks", "timer"];
 const RIGHT_TABS: BarTab[] = ["notifications", "controls"];
 
 const tabTransition = { duration: 0.18, ease: [0.16, 1, 0.3, 1] as const };
@@ -91,6 +93,13 @@ export const FloatSurface: React.FC<FloatSurfaceProps> = ({
             multiState={multiState}
             onSelectSession={onSelectSession}
             onOpenTasks={() => setActiveTab("tasks")}
+          />
+        );
+      case "calendar":
+        return (
+          <CalendarView
+            onOpenTasks={() => setActiveTab("tasks")}
+            onOpenSettings={() => setActiveTab("settings")}
           />
         );
       case "tray":
