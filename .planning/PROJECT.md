@@ -1,77 +1,59 @@
-# FLOAT - Calendar & Agenda Expansion
+# FLOAT - Calendar, Tasks & Sizing Expansion
 
 ## What This Is
 
-FLOAT is a lightweight MacBook-style notch and Dynamic Island for Windows built with React 19 and Tauri v2 (Rust). It provides glanceable media controls, audio visualization, Windows notifications, volume/system HUDs, and everyday desktop productivity tools. This milestone expands FLOAT's calendar and daily briefing into a full-featured multi-feed agenda, displaying upcoming meetings, all-day events, birthdays, and tasks.
+FLOAT is a lightweight MacBook-style notch and Dynamic Island desktop overlay for Windows built with React 19 and Tauri v2 (Rust). It provides glanceable media controls, audio visualization, toast notifications, system HUDs, and productivity tools. This milestone expands FLOAT into a comprehensive daily command center by supporting all Google Calendar events (manual events, all-day birthdays, and tasks) in both a dedicated Calendar tab and the compact Home line, adding double-click task editing, birthday/event notch alerts, and scaling the overall interface down to 85%.
 
 ## Core Value
 
-Calm, glanceable desktop awareness that seamlessly surfaces your next meeting, birthday, or task without cluttering your workflow.
+Calm, glanceable desktop awareness that seamlessly surfaces your closest meeting, birthday, or task without cluttering your workflow.
 
 ## Requirements
 
 ### Validated
 
-- ✓ Dynamic notch & floating liquid glass pill with continuous corner SVG generation — existing (v2.0)
-- ✓ Windows GSMTC media integration with live WASAPI audio visualizer — existing (v2.0)
-- ✓ Windows UserNotificationListener integration with 3.5s auto-preview and notification center — existing (v2.0)
-- ✓ Control center (Wi-Fi, Bluetooth, volume, brightness, battery, focus) — existing (v2.0)
-- ✓ Quick productivity tools (local tasks store, timer, clipboard history, file shelf) — existing (v2.0)
-- ✓ Single ICS calendar feed polling and basic next-event display on Home line — existing (v2.0)
+- ✓ Windows Dynamic Island & notch desktop overlay with compositor glass backdrop and click-through hit-testing — existing
+- ✓ GSMTC media session monitoring, album art extraction, and WASAPI loopback visualizer — existing
+- ✓ Volume and brightness HUD overlays with native Win32/WMI integration — existing
+- ✓ Windows toast notification listener and quiet hours focus tracking — existing
+- ✓ Local to-do checklist and countdown/stopwatch timer — existing
+- ✓ Clipboard history and native drag-and-drop file shelf — existing
 
 ### Active
 
-- [ ] Support configuring multiple ICS calendar feeds (e.g. Work, Personal, Google Contacts/Birthdays, Holidays) with custom labels and colors
-- [ ] Parse and handle all-day events, multi-day events, and recurring annual events (birthdays and anniversaries) in the Rust backend
-- [ ] Unified timeline combining calendar events, birthdays, and FLOAT local tasks
-- [ ] Visual indicators and badges: distinct birthday badges (🎂), calendar event dots, and task checkboxes
-- [ ] Smart Home line prioritization: displays ongoing/starting-soon meetings, today's birthdays, or next pending task
-- [ ] Dedicated Surface Agenda / Upcoming view tab: clean chronological overview of today's schedule and upcoming days
+- [ ] Native iCalendar engine fix for all-day events (`VALUE=DATE`), annual recurring birthdays (`rrule`), and removal of the 3-event limit
+- [ ] Native support for `BEGIN:VTODO` Google Tasks alongside calendar events
+- [ ] Multi-feed calendar support in Settings allowing users to configure and label secondary Google Calendar feeds (e.g. Birthdays, Tasks)
+- [ ] Dedicated Calendar / Agenda tab on `FloatSurface` with date grouping and distinct visual tags (🎂 Birthdays, 📅 Meetings, 📋 Tasks)
+- [ ] Compact Home clock line dynamically surfacing the single closest upcoming event or today's birthday with click-to-open Calendar tab
+- [ ] Notch/pill alerts and morning reminders for birthdays and events starting soon
+- [ ] Double-click inline editing for tasks in `TasksView`
+- [ ] Sizing adjustment scaling FLOAT down to 85% of its current size
 
 ### Out of Scope
 
-- Two-way calendar synchronization or event editing/creation (read-only glanceable display)
-- Proprietary cloud sync or OAuth accounts (uses standard private ICS feed URLs to preserve privacy and zero-backend design)
-- Exchange ActiveSync / native Outlook MAPI protocols (standard ICS format is universal across Google, Apple, and Outlook)
+- Full two-way calendar sync or write-back (creating/editing Google Calendar events from FLOAT) — read-only ICS feed integration preserves privacy and zero cloud credentials.
+- Monolithic calendar UI libraries — keep bundle lightweight using native Date and lightweight date utilities.
 
 ## Context
 
-- **Frontend**: React 19, TypeScript, Vite, Framer Motion, Lucide icons (`src/components/float/`)
-- **Native Backend**: Tauri v2 in Rust (`src-tauri/src/calendar.rs`, `lib.rs`)
-- Existing `calendar.rs` already contains basic single-URL fetching and VEVENT parsing; needs enhancement for multi-feed concurrent fetching, caching, recurrence expansion (RRULE/annual), and all-day date handling.
-- Frontend already has `tasksStore.ts` using `useSyncExternalStore`; combining tasks and calendar events will provide a single cohesive daily overview.
+- Google Calendar exports events as iCalendar (`.ics`) feeds, but formats all-day events without time components (`VALUE=DATE:YYYYMMDD`), causing the previous recurrence parser to drop them.
+- Birthdays and Google Tasks are often exported on distinct ICS addresses under the same Google account or as `VTODO` blocks.
+- Users want FLOAT to feel more compact on desktop displays (85% scale) while making tasks directly editable inline.
 
 ## Constraints
 
-- **Performance**: Event parsing must remain asynchronous in Rust background tasks, cached, and never block UI rendering or hit-testing.
-- **Privacy & Security**: Calendar URLs and event data stay strictly local in memory / user configuration on the PC.
-- **Zero Heavy Dependencies**: Keep the bundle lightweight; avoid heavy monolithic calendar libraries when lightweight date-fns or native Date suffices.
+- **Performance**: Event parsing and feed polling must remain on asynchronous Rust background threads, never blocking UI rendering or 60Hz hit-testing.
+- **Privacy & Security**: Calendar URLs and event data stay strictly local on the user's PC; no credentials or telemetry are stored on external servers.
+- **Sizing & Composition**: 85% scale must maintain pixel-perfect alignment with native Windows DWM glass backdrop and click-through hit regions.
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Multi-feed ICS architecture | Universal standard supported by Google Calendar, Apple iCloud, and Outlook without API keys or OAuth | — Pending |
-| Combined Agenda View + Home Line | Keeps the minimalist one-line summary on Home while giving users an expanded daily schedule on the Surface | — Pending |
-| Native Rust parsing & caching | Rust handles network fetch and ICS parsing efficiently in background threads with aggressive TTL caching | — Pending |
-| Distinct Birthday & Task badges | Visual clarity (🎂 for birthdays, colored dots for calendars, checkmark for tasks) helps immediate recognition | — Pending |
-
-## Evolution
-
-This document evolves at phase transitions and milestone boundaries.
-
-**After each phase transition** (via `/gsd-transition`):
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
-
-**After each milestone** (via `/gsd-complete-milestone`):
-1. Full review of all sections
-2. Core Value check — still the right priority?
-3. Audit Out of Scope — reasons still valid?
-4. Update Context with current state
+| Fix Rust `rrule` date normalization | Converts `VALUE=DATE` to local day-start so annual recurring birthdays expand properly | — Pending |
+| Multi-feed settings list | Allows aggregating Google Primary + Birthdays + Tasks ICS feeds | — Pending |
+| 85% uniform scale factor | Satisfies user request for a more compact desktop footprint without breaking layout ratios | — Pending |
 
 ---
-*Last updated: 2026-10-29 after initialization*
+*Last updated: 2026-10-30 after project initialization*
