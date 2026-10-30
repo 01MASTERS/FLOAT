@@ -43,6 +43,14 @@ export const taskList = {
     const task: Task = { id: crypto.randomUUID(), title: trimmed, done: false, createdAt: Date.now() };
     set([task, ...tasks].slice(0, MAX_TASKS));
   },
+  updateTitle(id: string, title: string) {
+    const trimmed = title.trim().slice(0, 200);
+    if (!trimmed) return;
+    set(tasks.map((t) => (t.id === id ? { ...t, title: trimmed } : t)));
+  },
+  updateTask(id: string, updates: Partial<Task>) {
+    set(tasks.map((t) => (t.id === id ? { ...t, ...updates } : t)));
+  },
   toggle(id: string) {
     set(tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
   },
@@ -53,6 +61,8 @@ export const taskList = {
     set(tasks.filter((t) => !t.done));
   },
 };
+
+export const updateTask = (id: string, updates: Partial<Task>) => taskList.updateTask(id, updates);
 
 export function useTasks(): Task[] {
   return useSyncExternalStore(

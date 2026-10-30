@@ -1,4 +1,6 @@
+import { CalendarEvent } from "../platform";
 import { MediaSession } from "../platform/media";
+import { MeetingLinkMatch } from "../services/calendar";
 import { TimerState } from "./timerStore";
 
 /**
@@ -10,6 +12,7 @@ export const ActivityPriority = {
   media: 10,
   // A running timer outranks music, which moves to the split bubble.
   timer: 30,
+  calendarAlert: 75,
   notification: 100,
   focus: 104,
   privacy: 105,
@@ -110,10 +113,20 @@ export interface TimerDoneActivity {
   durationMs: number;
 }
 
+export interface CalendarAlertActivity {
+  kind: "calendarAlert";
+  id: string;
+  priority: number;
+  alertType: "meeting_5m" | "meeting_now" | "birthday";
+  event: CalendarEvent;
+  meetingLink: MeetingLinkMatch | null;
+}
+
 export type Activity =
   | TimerActivity
   | TimerDoneActivity
   | NotificationActivity
+  | CalendarAlertActivity
   | MediaActivity
   | VolumeActivity
   | BatteryActivity
