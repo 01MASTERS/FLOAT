@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from "react";
 import {
   CalendarEvent,
-  getCalendarEvents,
   getSystemStats,
   getWeather,
   SystemStats,
   Weather,
 } from "../../platform";
 import { FloatSettings, loadSettings, subscribeToSettings } from "../../services/settings";
+import { useCalendarStore, upcomingLabel } from "../../services/calendar";
 import "./Widgets.css";
+
+export { upcomingLabel };
 
 function useSettings(): FloatSettings {
   const [settings, setSettings] = useState(() => loadSettings());
@@ -111,46 +113,15 @@ export const WeatherChip: React.FC = () => {
 
 /* ---- Calendar -------------------------------------------------------------------- */
 
-/** "Now", "in 25 min", "in 3 h", "Tomorrow", or a short date. */
-export function upcomingLabel(event: CalendarEvent, now: number): string {
-  if (event.start <= now) return "Now";
-  const mins = Math.round((event.start - now) / 60_000);
-  if (mins < 60) return `in ${mins} min`;
-  const start = new Date(event.start);
-  const today = new Date(now);
-  const dayOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const days = Math.round((dayOf(start) - dayOf(today)) / 86_400_000);
-  if (days === 0) return `in ${Math.round(mins / 60)} h`;
-  if (days === 1) return "Tomorrow";
-  return start.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-}
-
-/** The next event from the linked ICS calendar, or null (none, or no link). */
+/** The next event from the centralized calendar store, or null (none, or no feeds). */
 export function useNextEvent(): CalendarEvent | null {
-  const { calendarUrl } = useSettings();
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const { events } = useCalendarStore();
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), 30_000);
+    const tick = setInterval(() => setNow(Date.now()), 15_000);
     return () => clearInterval(tick);
   }, []);
-
-  useEffect(() => {
-    setEvents([]);
-    if (!calendarUrl.trim()) return;
-    let cancelled = false;
-    const load = () =>
-      getCalendarEvents(calendarUrl)
-        .then((list) => !cancelled && setEvents(list))
-        .catch(() => !cancelled && setEvents([]));
-    load();
-    const timer = setInterval(load, 5 * 60_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [calendarUrl]);
 
   return events.find((e) => e.end > now) ?? null;
 }

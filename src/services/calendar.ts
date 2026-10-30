@@ -336,3 +336,122 @@ export function formatRelativeStatus(event: CalendarEvent, nowMs: number): strin
 
   return "Past";
 }
+
+/* ------------------------------------------------------------------ */
+/*  4-Tier Priority Event Selection for Home Line                     */
+/* ------------------------------------------------------------------ */
+
+export interface HomeEventMatch {
+  event: CalendarEvent;
+  badge: string;
+  isOngoing: boolean;
+  isBirthday: boolean;
+  prefix?: string;
+}
+
+export function isToday(timestamp: number, nowMs: number): boolean {
+  const d1 = new Date(timestamp);
+  const d2 = new Date(nowMs);
+  return (
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate()
+  );
+}
+
+/** "Now", "in 25m", "in 1h 10m", "in 3h", "Tomorrow", or a short date. */
+export function upcomingLabel(event: CalendarEvent, now: number): string {
+  if (event.start <= now) return "Now";
+  const mins = Math.max(1, Math.round((event.start - now) / 60_000));
+  if (mins < 60) return `in ${mins}m`;
+  if (mins < 120) {
+    const rem = mins - 60;
+    return rem === 0 ? "in 1h" : `in 1h ${rem}m`;
+  }
+  const start = new Date(event.start);
+  const today = new Date(now);
+  const dayOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((dayOf(start) - dayOf(today)) / 86_400_000);
+  if (days === 0) return `in ${Math.round(mins / 60)}h`;
+  if (days === 1) return "Tomorrow";
+  return start.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+
+/**
+ * Selects the single most critical event based on the strict 4-tier hierarchy:
+ * 1. Ongoing meeting (highest priority)
+ * 2. Upcoming meeting within 2 hours
+ * 3. Today's birthday or all-day event
+ * 4. Later upcoming meeting
+ */
+export function selectHomeEvent(events: CalendarEvent[], nowMs: number): HomeEventMatch | null {
+  // Tier 1 (Ongoing Meeting): !allDay && start <= nowMs && end > nowMs
+  const ongoing = events.find((e) => !e.allDay && e.start <= nowMs && e.end > nowMs);
+  if (ongoing) {
+    const minsLeft = Math.max(1, Math.round((ongoing.end - nowMs) / 60_000));
+    return {
+      event: ongoing,
+      badge: minsLeft < 60 ? `ends in ${minsLeft}m` : `ends in ${Math.round(minsLeft / 60)}h`,
+      isOngoing: true,
+      isBirthday: false,
+      prefix: "Now: ",
+    };
+  }
+
+  // Tier 2 (Upcoming Meeting < 2 Hours): !allDay && start > nowMs && start <= nowMs + 2h
+  const upcomingTwoHours = events.find(
+    (e) => !e.allDay && e.start > nowMs && e.start <= nowMs + 2 * 3600 * 1000
+  );
+  if (upcomingTwoHours) {
+    const minsUntil = Math.max(1, Math.round((upcomingTwoHours.start - nowMs) / 60_000));
+    const rem = minsUntil - 60;
+    return {
+      event: upcomingTwoHours,
+      badge: minsUntil < 60 ? `in ${minsUntil}m` : rem === 0 ? "in 1h" : `in 1h ${rem}m`,
+      isOngoing: false,
+      isBirthday: false,
+    };
+  }
+
+  // Tier 3 (Today's Birthday or All-Day Event): (allDay || kind === "birthday" || kind === "all_day") && isToday(start, nowMs)
+  const todayAllDay =
+    events.find((e) => e.kind === "birthday" && (isToday(e.start, nowMs) || (e.start <= nowMs && e.end > nowMs))) ||
+    events.find(
+      (e) =>
+        (e.allDay || e.kind === "all_day") &&
+        (isToday(e.start, nowMs) || (e.start <= nowMs && e.end > nowMs))
+    );
+  if (todayAllDay) {
+    const isBirthday = todayAllDay.kind === "birthday";
+    return {
+      event: todayAllDay,
+      badge: "Today",
+      isOngoing: false,
+      isBirthday,
+      prefix: isBirthday ? "🎂 " : undefined,
+    };
+  }
+
+  // Tier 4 (Later Upcoming Meeting): start > nowMs
+  const later = events.find((e) => e.start > nowMs);
+  if (later) {
+    const isBirthday = later.kind === "birthday";
+    return {
+      event: later,
+      badge: upcomingLabel(later, nowMs),
+      isOngoing: false,
+      isBirthday,
+      prefix: isBirthday ? "🎂 " : undefined,
+    };
+  }
+
+  return null;
+}
+
+/** Reactive hook subscribing to the centralized store and evaluating selectHomeEvent. */
+export function useHomeCalendarEvent(nowMs?: number): HomeEventMatch | null {
+  const { events } = useCalendarStore();
+  const currentNow = nowMs ?? Date.now();
+  return selectHomeEvent(events, currentNow);
+}
+
