@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, X } from "lucide-react";
-import { taskList, useTasks } from "../../activities/tasksStore";
+import { Task, taskList, useTasks } from "../../activities/tasksStore";
 import "./TasksView.css";
 
 /** To-do list: type, Enter, tick off. Open tasks first, finished ones below. */
@@ -10,6 +10,48 @@ export const TasksView: React.FC = () => {
   const [draft, setDraft] = useState("");
   const open = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);
+
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [shakeTaskId, setShakeTaskId] = useState<string | null>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = (task: Task) => {
+    setEditingTaskId(task.id);
+    setEditTitle(task.title);
+    setTimeout(() => {
+      editInputRef.current?.focus();
+      editInputRef.current?.select();
+    }, 0);
+  };
+
+  const cancelEdit = () => {
+    setEditingTaskId(null);
+    setEditTitle("");
+  };
+
+  const commitEdit = (task: Task) => {
+    const trimmed = editTitle.trim().slice(0, 200);
+    if (!trimmed) {
+      setShakeTaskId(task.id);
+      setTimeout(() => setShakeTaskId(null), 400);
+      cancelEdit();
+      return;
+    }
+    if (trimmed !== task.title) {
+      taskList.updateTitle(task.id, trimmed);
+    }
+    cancelEdit();
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, task: Task) => {
+    e.stopPropagation();
+    if (e.key === "Enter") {
+      commitEdit(task);
+    } else if (e.key === "Escape") {
+      cancelEdit();
+    }
+  };
 
   return (
     <div className="view tasks-view">
@@ -76,7 +118,30 @@ export const TasksView: React.FC = () => {
               >
                 {task.done && <Check size={11} strokeWidth={3.2} />}
               </button>
-              <span className="task-title">{task.title}</span>
+              {editingTaskId === task.id ? (
+                <input
+                  ref={editInputRef}
+                  className={`task-inline-edit ${shakeTaskId === task.id ? "shake" : ""}`}
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  onKeyDown={(e) => handleEditKeyDown(e, task)}
+                  onBlur={() => commitEdit(task)}
+                  data-no-drag="true"
+                  spellCheck={false}
+                  aria-label="Edit task title"
+                />
+              ) : (
+                <span
+                  className={`task-title ${shakeTaskId === task.id ? "shake" : ""}`}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    startEdit(task);
+                  }}
+                  title="Double-click to edit"
+                >
+                  {task.title}
+                </span>
+              )}
               <button
                 type="button"
                 className="task-remove"

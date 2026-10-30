@@ -119,3 +119,32 @@
   background: var(--fill-2);
   color: var(--text-1);
 }
+
+.task-inline-edit {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--tint);
+  border-radius: var(--r-control);
+  background: var(--fill-2);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--t-body);
+  line-height: inherit;
+  padding: 1px 6px;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.2);
+  user-select: text;
+}
+
+@keyframes taskShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+.task-inline-edit.shake,
+.task-title.shake {
+  animation: taskShake 0.4s ease;
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px rgba(255, 69, 58, 0.25);
+}
