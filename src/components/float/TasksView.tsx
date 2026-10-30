@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, X } from "lucide-react";
 import { Task, taskList, useTasks } from "../../activities/tasksStore";
@@ -14,7 +14,7 @@ export const TasksView: React.FC = () => {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [shakeTaskId, setShakeTaskId] = useState<string | null>(null);
-  const shakeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
@@ -27,8 +27,10 @@ export const TasksView: React.FC = () => {
     setEditingTaskId(task.id);
     setEditTitle(task.title);
     setTimeout(() => {
-      editInputRef.current?.focus();
-      editInputRef.current?.select();
+      if (editInputRef.current) {
+        editInputRef.current.focus();
+        editInputRef.current.select();
+      }
     }, 0);
   };
 
@@ -68,108 +70,115 @@ export const TasksView: React.FC = () => {
       <div className="view-header">
         <span className="view-title">Tasks</span>
         <span className="view-hint">{tasks.length === 0 ? "" : open.length === 0 ? "All done" : `${open.length} to do`}</span>
-        {done.length > 0 && (
-          <button
-            type="button"
-            className="view-action"
-            onClick={(e) => {
-              e.stopPropagation();
-              taskList.clearDone();
-            }}
-            data-no-drag="true"
-          >
-            Clear done
-          </button>
-        )}
       </div>
 
       <form
-        className="task-add"
+        className="tasks-composer"
         onSubmit={(e) => {
           e.preventDefault();
-          taskList.add(draft);
+          const clean = draft.trim();
+          if (!clean) return;
+          taskList.add(clean);
           setDraft("");
         }}
-        onClick={(e) => e.stopPropagation()}
       >
-        <span className="task-check ghost" />
         <input
+          type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.stopPropagation()}
-          placeholder="New task"
-          aria-label="New task"
-          spellCheck={false}
-          data-no-drag="true"
+          placeholder="Add a task… (Enter)"
+          maxLength={120}
         />
       </form>
 
-      <div className="task-list">
+      <div className="tasks-list scroll-area">
         <AnimatePresence initial={false}>
-          {[...open, ...done].map((task) => (
-            <motion.div
-              key={task.id}
-              layout
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, x: -16 }}
-              transition={{ type: "spring", stiffness: 520, damping: 38 }}
-              className={`task-row ${task.done ? "done" : ""}`}
-            >
-              <button
-                type="button"
-                className={`task-check ${task.done ? "checked" : ""}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  taskList.toggle(task.id);
-                }}
-                data-no-drag="true"
-                aria-label={task.done ? "Mark as not done" : "Mark as done"}
+          {open.map((t) => {
+            const isEditing = editingTaskId === t.id;
+            const isShaking = shakeTaskId === t.id;
+
+            return (
+              <motion.div
+                key={t.id}
+                className={`task-row ${isShaking ? "task-shake" : ""}`}
+                layout
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
               >
-                {task.done && <Check size={11} strokeWidth={3.2} />}
-              </button>
-              {editingTaskId === task.id ? (
-                <input
-                  ref={editInputRef}
-                  className={`task-inline-edit ${shakeTaskId === task.id ? "shake" : ""}`}
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  onKeyDown={(e) => handleEditKeyDown(e, task)}
-                  onBlur={() => commitEdit(task)}
-                  data-no-drag="true"
-                  spellCheck={false}
-                  aria-label="Edit task title"
+                <button
+                  type="button"
+                  className="task-check"
+                  onClick={() => taskList.toggle(t.id)}
+                  aria-label="Mark done"
                 />
-              ) : (
-                <span
-                  className={`task-title ${shakeTaskId === task.id ? "shake" : ""}`}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    startEdit(task);
-                  }}
-                  title="Double-click to edit"
+                {isEditing ? (
+                  <input
+                    ref={editInputRef}
+                    className="task-inline-edit"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    onBlur={() => commitEdit(t)}
+                    onKeyDown={(e) => handleEditKeyDown(e, t)}
+                    maxLength={200}
+                  />
+                ) : (
+                  <span
+                    className="task-title"
+                    onDoubleClick={() => startEdit(t)}
+                    title="Double-click to edit"
+                  >
+                    {t.title}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="task-delete"
+                  onClick={() => taskList.remove(t.id)}
+                  aria-label="Delete task"
                 >
-                  {task.title}
-                </span>
-              )}
-              <button
-                type="button"
-                className="task-remove"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  taskList.remove(task.id);
-                }}
-                data-no-drag="true"
-                aria-label="Delete task"
-              >
-                <X size={12} strokeWidth={2.4} />
-              </button>
-            </motion.div>
-          ))}
+                  <X size={12} />
+                </button>
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
+
+        {done.length > 0 && (
+          <div className="tasks-done-group">
+            <span className="tasks-done-header">Completed</span>
+            {done.map((t) => (
+              <div key={t.id} className="task-row is-done">
+                <button
+                  type="button"
+                  className="task-check checked"
+                  onClick={() => taskList.toggle(t.id)}
+                  aria-label="Mark undone"
+                >
+                  <Check size={10} strokeWidth={3} />
+                </button>
+                <span className="task-title">{t.title}</span>
+                <button
+                  type="button"
+                  className="task-delete"
+                  onClick={() => taskList.remove(t.id)}
+                  aria-label="Delete task"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tasks.length === 0 && (
+          <div className="tasks-empty">
+            <p>No tasks yet.</p>
+            <span>Type above to keep a thought for later.</span>
+          </div>
+        )}
       </div>
     </div>
   );
 };
-
-export default TasksView;
