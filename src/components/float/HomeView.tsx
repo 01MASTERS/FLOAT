@@ -2,7 +2,8 @@ import React, { useEffect, useState } from "react";
 import { MediaSession, MultiSessionState } from "../../platform/media";
 import { MediaWidgetSurface } from "./MediaWidgetSurface";
 import { CurrentLyric } from "./Lyrics";
-import { useNextEvent, upcomingLabel, WeatherChip } from "./Widgets";
+import { WeatherChip } from "./Widgets";
+import { useHomeCalendarEvent } from "../../services/calendar";
 import { useTasks } from "../../activities/tasksStore";
 import "./HomeView.css";
 
@@ -11,6 +12,7 @@ interface HomeViewProps {
   multiState?: MultiSessionState | null;
   onSelectSession?: (sessionId: string) => void;
   onOpenTasks: () => void;
+  onOpenCalendar?: () => void;
 }
 
 function useNow(everyMs: number): Date {
@@ -28,7 +30,13 @@ const timeOf = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", m
  * Focused Home: the player (or a large clock when nothing plays) and one
  * calm line beneath it. Everything else lives one tab away.
  */
-export const HomeView: React.FC<HomeViewProps> = ({ media, multiState, onSelectSession, onOpenTasks }) => {
+export const HomeView: React.FC<HomeViewProps> = ({
+  media,
+  multiState,
+  onSelectSession,
+  onOpenTasks,
+  onOpenCalendar,
+}) => {
   const now = useNow(10_000);
   const playing = !!media?.hasMedia;
 
@@ -52,26 +60,68 @@ export const HomeView: React.FC<HomeViewProps> = ({ media, multiState, onSelectS
           </div>
         )}
       </div>
-      <HomeLine now={now} showTime={playing} onOpenTasks={onOpenTasks} />
+      <HomeLine
+        now={now}
+        showTime={playing}
+        onOpenTasks={onOpenTasks}
+        onOpenCalendar={onOpenCalendar}
+      />
     </div>
   );
 };
 
+interface HomeLineProps {
+  now: Date;
+  showTime: boolean;
+  onOpenTasks: () => void;
+  onOpenCalendar?: () => void;
+}
+
 /** time · weather · the next event or task. */
-const HomeLine: React.FC<{ now: Date; showTime: boolean; onOpenTasks: () => void }> = ({ now, showTime, onOpenTasks }) => {
-  const event = useNextEvent();
+const HomeLine: React.FC<HomeLineProps> = ({
+  now,
+  showTime,
+  onOpenTasks,
+  onOpenCalendar,
+}) => {
+  const matched = useHomeCalendarEvent(now.getTime());
   const nextTask = useTasks().find((t) => !t.done);
 
   return (
     <div className="home-line">
       {showTime && <span className="home-line-time">{timeOf(now)}</span>}
       <WeatherChip />
-      {event ? (
-        <span className="home-line-next" title={event.location ?? undefined}>
-          <span className="home-line-dot event" />
-          <span className="home-line-text">{event.title}</span>
-          <span className="home-line-when">{upcomingLabel(event, now.getTime())}</span>
-        </span>
+      {matched ? (
+        <button
+          type="button"
+          className="home-line-next"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenCalendar?.();
+          }}
+          data-no-drag="true"
+          title={matched.event.location || matched.event.title}
+          aria-label={`Open calendar event: ${matched.event.title}`}
+        >
+          {matched.isOngoing ? (
+            <span className="home-line-dot ongoing" />
+          ) : matched.isBirthday ? (
+            <span className="home-line-dot birthday" />
+          ) : (
+            <span
+              className="home-line-dot event"
+              style={{ background: matched.event.feedColor || undefined }}
+            />
+          )}
+          {(() => {
+            const rawTitle = (matched.prefix || "") + matched.event.title;
+            const title = rawTitle.length > 28 ? rawTitle.slice(0, 27) + "…" : rawTitle;
+            return <span className="home-line-text">{title}</span>;
+          })()}
+          <span className={`home-line-when ${matched.isOngoing ? "ongoing" : ""}`}>
+            {matched.badge}
+          </span>
+        </button>
       ) : nextTask ? (
         <button
           type="button"

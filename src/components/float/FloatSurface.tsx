@@ -93,6 +93,7 @@ export const FloatSurface: React.FC<FloatSurfaceProps> = ({
             multiState={multiState}
             onSelectSession={onSelectSession}
             onOpenTasks={() => setActiveTab("tasks")}
+            onOpenCalendar={() => setActiveTab("calendar")}
           />
         );
       case "calendar":

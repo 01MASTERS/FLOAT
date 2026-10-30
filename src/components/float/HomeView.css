@@ -77,6 +77,10 @@ button.home-line-next:hover .home-line-text {
   color: var(--text-1);
 }
 
+button.home-line-next:hover .home-line-when:not(.ongoing) {
+  color: var(--text-1);
+}
+
 .home-line-dot {
   width: 6px;
   height: 6px;
@@ -86,6 +90,15 @@ button.home-line-next:hover .home-line-text {
 
 .home-line-dot.event {
   background: var(--red);
+}
+
+.home-line-dot.ongoing {
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(48, 209, 88, 0.45);
+}
+
+.home-line-dot.birthday {
+  background: var(--orange);
 }
 
 .home-line-dot.task {
@@ -112,4 +125,10 @@ button.home-line-next:hover .home-line-text {
 .home-line-when {
   flex-shrink: 0;
   color: var(--text-2);
+  transition: color 0.15s ease;
+}
+
+.home-line-when.ongoing {
+  color: var(--green);
+  font-weight: 500;
 }
