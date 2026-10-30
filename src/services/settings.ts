@@ -6,6 +6,14 @@ export type RestingMode = "orb" | "compact";
 // auto: black notch when docked, liquid glass when floating.
 export type VisualStyle = "auto" | "glass" | "black";
 
+export interface CalendarFeedConfig {
+  id: string;
+  label: string;
+  url: string;
+  enabled: boolean;
+  color: string; // Preset hex or theme token, e.g. "#0a84ff", "#30d158", "#bf5af2", "#ff9f0a", "#ff453a", "#ffd60a"
+}
+
 export interface FloatSettings {
   transparency: number; // glass tint: how dark the glass is, 0.10 to 0.90, default 0.45
   pillLength: number;   // activity width, 220 to 340, default 300
@@ -25,6 +33,7 @@ export interface FloatSettings {
   weatherCity: string;           // city name looked up for weather
   weatherFahrenheit: boolean;    // default false (Celsius)
   calendarUrl: string;           // private ICS link for the calendar widget ("" = off)
+  calendarFeeds: CalendarFeedConfig[]; // configured multi-feed list
 }
 
 export const PILL_LENGTH_MIN = 220;
@@ -49,6 +58,7 @@ export const DEFAULT_FLOAT_SETTINGS: FloatSettings = {
   weatherCity: "",
   weatherFahrenheit: false,
   calendarUrl: "",
+  calendarFeeds: [],
 };
 
 const SETTINGS_STORAGE_KEY = "float_settings_v1";
@@ -153,11 +163,39 @@ export function loadSettings(): FloatSettings {
     const bool = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
     const text = (value: unknown, max: number) => (typeof value === "string" ? value.slice(0, max) : "");
 
+    // Parse and migrate calendar feeds
+    let calendarFeeds: CalendarFeedConfig[] = [];
+    if (Array.isArray(parsed.calendarFeeds)) {
+      calendarFeeds = parsed.calendarFeeds
+        .filter((f: unknown): f is Record<string, unknown> => typeof f === "object" && f !== null)
+        .map((f: Record<string, unknown>) => ({
+          id: typeof f.id === "string" ? f.id : crypto.randomUUID(),
+          label: typeof f.label === "string" && f.label.trim() ? f.label.trim().slice(0, 50) : "Calendar",
+          url: typeof f.url === "string" ? f.url.trim().slice(0, 2000) : "",
+          enabled: typeof f.enabled === "boolean" ? f.enabled : true,
+          color: typeof f.color === "string" ? f.color : "#0a84ff",
+        }));
+    }
+
+    const legacyCalendarUrl = text(parsed.calendarUrl, 2000);
+    if (calendarFeeds.length === 0 && legacyCalendarUrl.length > 0) {
+      calendarFeeds = [
+        {
+          id: "default",
+          label: "Primary",
+          url: legacyCalendarUrl,
+          enabled: true,
+          color: "#0a84ff",
+        },
+      ];
+    }
+
     return {
       weatherEnabled: bool(parsed.weatherEnabled, DEFAULT_FLOAT_SETTINGS.weatherEnabled),
       weatherCity: text(parsed.weatherCity, 80),
       weatherFahrenheit: bool(parsed.weatherFahrenheit, DEFAULT_FLOAT_SETTINGS.weatherFahrenheit),
-      calendarUrl: text(parsed.calendarUrl, 2000),
+      calendarUrl: legacyCalendarUrl,
+      calendarFeeds,
       transparency,
       pillLength,
       orbSize,
@@ -180,7 +218,13 @@ export function loadSettings(): FloatSettings {
 
 export function saveSettings(settings: FloatSettings): void {
   try {
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ ...settings, settingsVersion: SETTINGS_VERSION }));
+    const primaryFeedUrl = settings.calendarFeeds?.find((f) => f.enabled)?.url || settings.calendarFeeds?.[0]?.url || "";
+    const settingsToSave = {
+      ...settings,
+      calendarUrl: primaryFeedUrl || settings.calendarUrl || "",
+      settingsVersion: SETTINGS_VERSION,
+    };
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settingsToSave));
     applySettingsToDOM(settings);
     applySettingsToNative(settings);
     listeners.forEach((l) => l(settings));

@@ -12,14 +12,24 @@ import {
   PILL_LENGTH_MAX,
   GLASS_TINT_MIN,
   GLASS_TINT_MAX,
+  CalendarFeedConfig,
 } from "../../services/settings";
 import { getAutostart, getHotkey, setAutostart, subscribeToAutostart } from "../../platform";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Plus, Trash2 } from "lucide-react";
 import "./FloatSettingsView.css";
 
 interface FloatSettingsViewProps {
   onClose?: () => void;
 }
+
+const FEED_COLOR_PRESETS = [
+  "#0a84ff", // Blue
+  "#30d158", // Green
+  "#bf5af2", // Purple
+  "#ff9f0a", // Orange
+  "#ff453a", // Red
+  "#ffd60a", // Yellow
+];
 
 /** A text field that saves on Enter or when focus leaves, not on every key. */
 const CommitInput: React.FC<{
@@ -656,19 +666,129 @@ export const FloatSettingsView: React.FC<FloatSettingsViewProps> = ({ onClose })
 
           <div className="float-setting-toggle-row">
             <div className="float-setting-toggle-left">
-              <span className="float-setting-toggle-title">Calendar</span>
+              <span className="float-setting-toggle-title">Calendars & Feeds</span>
               <span className="float-setting-toggle-desc">
-                Paste your calendar's private ICS link (Google: Settings › your calendar › Secret address in iCal format). FLOAT downloads it to show your next event
+                Connect multiple calendar feeds (Primary, Birthdays, Tasks) via their private ICS links. FLOAT syncs and displays your unified schedule.
               </span>
             </div>
           </div>
-          <div className="float-setting-field-row">
-            <CommitInput
-              value={settings.calendarUrl}
-              placeholder="https://… .ics"
-              ariaLabel="Calendar ICS link"
-              onCommit={(calendarUrl) => update({ calendarUrl })}
-            />
+          <div className="float-setting-calendar-list">
+            {(settings.calendarFeeds || []).map((feed) => {
+              const cycleColor = () => {
+                const idx = FEED_COLOR_PRESETS.indexOf(feed.color);
+                const nextColor = FEED_COLOR_PRESETS[(idx + 1) % FEED_COLOR_PRESETS.length];
+                update({
+                  calendarFeeds: (settings.calendarFeeds || []).map((f) =>
+                    f.id === feed.id ? { ...f, color: nextColor } : f
+                  ),
+                });
+              };
+
+              const toggleFeed = () => {
+                update({
+                  calendarFeeds: (settings.calendarFeeds || []).map((f) =>
+                    f.id === feed.id ? { ...f, enabled: !f.enabled } : f
+                  ),
+                });
+              };
+
+              const updateLabel = (label: string) => {
+                update({
+                  calendarFeeds: (settings.calendarFeeds || []).map((f) =>
+                    f.id === feed.id ? { ...f, label } : f
+                  ),
+                });
+              };
+
+              const updateUrl = (url: string) => {
+                update({
+                  calendarFeeds: (settings.calendarFeeds || []).map((f) =>
+                    f.id === feed.id ? { ...f, url } : f
+                  ),
+                });
+              };
+
+              const deleteFeed = () => {
+                update({
+                  calendarFeeds: (settings.calendarFeeds || []).filter((f) => f.id !== feed.id),
+                });
+              };
+
+              return (
+                <div key={feed.id} className="float-calendar-feed-row">
+                  <div className="float-calendar-feed-header">
+                    <button
+                      type="button"
+                      className="float-calendar-color-dot"
+                      style={{ backgroundColor: feed.color || "#0a84ff" }}
+                      onClick={cycleColor}
+                      title="Click to cycle color"
+                      aria-label="Change feed color"
+                      data-no-drag="true"
+                    />
+                    <div className="float-calendar-label-wrap">
+                      <CommitInput
+                        value={feed.label}
+                        placeholder="Feed label"
+                        ariaLabel="Feed label"
+                        onCommit={updateLabel}
+                      />
+                    </div>
+                    <div className="float-calendar-feed-actions">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={feed.enabled}
+                        className={`float-setting-switch ${feed.enabled ? "checked" : ""}`}
+                        onClick={toggleFeed}
+                        data-no-drag="true"
+                        aria-label={`Toggle ${feed.label}`}
+                      >
+                        <span className="float-setting-switch-handle" />
+                      </button>
+                      <button
+                        type="button"
+                        className="float-calendar-delete-btn"
+                        onClick={deleteFeed}
+                        title="Remove feed"
+                        aria-label={`Remove ${feed.label}`}
+                        data-no-drag="true"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="float-calendar-url-row">
+                    <CommitInput
+                      value={feed.url}
+                      placeholder="https://…/basic.ics"
+                      ariaLabel={`${feed.label} ICS URL`}
+                      onCommit={updateUrl}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+
+            <button
+              type="button"
+              className="float-calendar-add-btn"
+              onClick={() => {
+                const currentFeeds = settings.calendarFeeds || [];
+                const newFeed: CalendarFeedConfig = {
+                  id: crypto.randomUUID(),
+                  label: `Calendar ${currentFeeds.length + 1}`,
+                  url: "",
+                  enabled: true,
+                  color: FEED_COLOR_PRESETS[currentFeeds.length % FEED_COLOR_PRESETS.length],
+                };
+                update({ calendarFeeds: [...currentFeeds, newFeed] });
+              }}
+              data-no-drag="true"
+            >
+              <Plus size={14} />
+              <span>Add Calendar Feed</span>
+            </button>
           </div>
         </div>
 

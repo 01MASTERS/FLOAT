@@ -379,12 +379,34 @@ export interface CalendarEvent {
   start: number;
   end: number;
   allDay: boolean;
+  kind: "meeting" | "birthday" | "task" | "all_day";
   location: string | null;
+  feedColor?: string | null;
+  feedLabel?: string | null;
 }
 
 /** Upcoming events from the user's private ICS link (network). */
-export async function getCalendarEvents(url: string): Promise<CalendarEvent[]> {
-  return await invoke<CalendarEvent[]>("get_calendar_events", { url });
+export interface CalendarFeedPayload {
+  id: string;
+  label: string;
+  url: string;
+  enabled: boolean;
+  color?: string | null;
+}
+
+export async function getCalendarEvents(
+  feedsOrUrl?: CalendarFeedPayload[] | string
+): Promise<CalendarEvent[]> {
+  try {
+    if (!feedsOrUrl) return [];
+    if (typeof feedsOrUrl === "string") {
+      return await invoke<CalendarEvent[]>("get_calendar_events", { url: feedsOrUrl });
+    }
+    return await invoke<CalendarEvent[]>("get_calendar_events", { feeds: feedsOrUrl });
+  } catch (e) {
+    console.error("Failed to get calendar events:", e);
+    return [];
+  }
 }
 
 export interface LyricLine {

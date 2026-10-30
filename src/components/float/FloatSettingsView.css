@@ -496,3 +496,126 @@
   font-size: var(--t-footnote);
   font-weight: 500;
 }
+
+
+/* Calendar Multi-Feed Management */
+.float-setting-calendar-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  width: 100%;
+  margin-top: 4px;
+}
+
+.float-calendar-feed-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--fill-1);
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+
+.float-calendar-feed-row:hover {
+  background: var(--fill-2);
+}
+
+.float-calendar-feed-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.float-calendar-color-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.float-calendar-color-dot:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+}
+
+.float-calendar-label-wrap {
+  flex: 1;
+}
+
+.float-calendar-label-wrap .float-setting-input {
+  font-weight: 600;
+  font-size: var(--t-body);
+  background: transparent;
+  border-color: transparent;
+  padding: 4px 6px;
+}
+
+.float-calendar-label-wrap .float-setting-input:focus {
+  background: var(--fill-1);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.float-calendar-feed-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.float-calendar-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.float-calendar-delete-btn:hover {
+  color: var(--red);
+  background: rgba(255, 69, 58, 0.15);
+}
+
+.float-calendar-url-row {
+  width: 100%;
+}
+
+.float-calendar-url-row .float-setting-input {
+  width: 100%;
+  font-size: var(--t-caption);
+  color: var(--text-2);
+}
+
+.float-calendar-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--t-footnote);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.float-calendar-add-btn:hover {
+  color: var(--text-1);
+  background: var(--fill-1);
+  border-color: rgba(255, 255, 255, 0.35);
+}
