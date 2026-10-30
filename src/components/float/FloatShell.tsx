@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, LayoutGroup, AnimatePresence } from "framer-motion";
 import { FloatPill } from "./FloatPill";
-import { FloatSurface } from "./FloatSurface";
+import { FloatSurface, SurfaceTab } from "./FloatSurface";
 import { FloatOrb, OrbNotificationState, OrbFocusState } from "./FloatOrb";
 import { SplitBubble } from "./SplitBubble";
 import { useAlbumArt } from "./useAlbumArt";
@@ -48,6 +48,7 @@ import { mediaTimeline } from "./mediaTimeline";
 import { loadSettings, saveSettings, subscribeToSettings, FloatSettings } from "../../services/settings";
 import { useActivities } from "../../activities/useActivities";
 import { Activity, ActivityPriority, isStatusActivity } from "../../activities/types";
+import { useCalendarStore, extractMeetingLink, isToday } from "../../services/calendar";
 import { timer, useTimerState } from "../../activities/timerStore";
 import { playChime } from "./Timer";
 import { shelf } from "./Shelf";
@@ -103,6 +104,32 @@ const SWIPE_DISMISS_PX = 12;
 
 const DOUBLE_TAP_WINDOW_MS = 250;
 const IDLE_TO_ORB_DELAY_MS = 3000;
+const BDAY_STORAGE_KEY = "float_bday_alerts_v1";
+
+function getNotifiedBirthdays(dateStr: string): string[] {
+  try {
+    const raw = localStorage.getItem(BDAY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed[dateStr]) ? parsed[dateStr] : [];
+  } catch {
+    return [];
+  }
+}
+
+function recordNotifiedBirthday(dateStr: string, eventId: string) {
+  try {
+    const raw = localStorage.getItem(BDAY_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const existing = Array.isArray(parsed[dateStr]) ? parsed[dateStr] : [];
+    if (!existing.includes(eventId)) {
+      parsed[dateStr] = [...existing, eventId];
+      localStorage.setItem(BDAY_STORAGE_KEY, JSON.stringify(parsed));
+    }
+  } catch {
+    // Ignore storage issues
+  }
+}
 const HOVER_OPEN_MS = 280;
 const HOVER_CLOSE_MS = 320;
 
@@ -197,8 +224,101 @@ const FloatShell: React.FC = () => {
   );
 
   // Album-art accent tints the equalizer, progress and a soft glow.
-  const accent = useArtColor(useAlbumArt(activeMedia));
-  const accentGlow = !!accent && !!activeMedia?.isPlaying;
+  const artAccent = useArtColor(useAlbumArt(activeMedia));
+  const isBirthdayAlert = primary?.kind === "calendarAlert" && primary.alertType === "birthday";
+  const accent = isBirthdayAlert ? "#ff9f0a" : artAccent;
+  const accentGlow = isBirthdayAlert ? true : (!!accent && !!activeMedia?.isPlaying);
+
+  const calendar = useCalendarStore();
+  const notifiedAlertIdsRef = useRef<Set<string>>(new Set());
+  const [surfaceInitialTab, setSurfaceInitialTab] = useState<SurfaceTab>("home");
+
+  // Calendar meeting & morning birthday alerts loop (NOTCH-03)
+  useEffect(() => {
+    const checkAlerts = () => {
+      const now = Date.now();
+      const todayStr = new Date(now).toISOString().slice(0, 10);
+
+      // 1. Meeting Alerts (D-01)
+      for (const event of calendar.events) {
+        if (event.kind === "birthday" || event.allDay || event.kind === "all_day" || !event.start) {
+          continue;
+        }
+
+        // 5-minute heads-up (start - 5m up to start - 4m)
+        if (event.start - 5 * 60_000 <= now && now < event.start - 4 * 60_000) {
+          const alertId = `meet_5m:${event.title}:${event.start}`;
+          if (!notifiedAlertIdsRef.current.has(alertId)) {
+            notifiedAlertIdsRef.current.add(alertId);
+            show(
+              {
+                kind: "calendarAlert",
+                id: alertId,
+                priority: ActivityPriority.calendarAlert,
+                alertType: "meeting_5m",
+                event,
+                meetingLink: extractMeetingLink(event),
+              },
+              8000
+            );
+          }
+        }
+
+        // Starting now (start up to start + 1m)
+        if (event.start <= now && now < event.start + 60_000) {
+          const alertId = `meet_now:${event.title}:${event.start}`;
+          if (!notifiedAlertIdsRef.current.has(alertId)) {
+            notifiedAlertIdsRef.current.add(alertId);
+            show(
+              {
+                kind: "calendarAlert",
+                id: alertId,
+                priority: ActivityPriority.calendarAlert,
+                alertType: "meeting_now",
+                event,
+                meetingLink: extractMeetingLink(event),
+              },
+              8000
+            );
+          }
+        }
+      }
+
+      // 2. Morning Birthday Alert (D-02)
+      const hour = new Date(now).getHours();
+      const isMorning = hour >= 8 && hour < 12;
+      if (isMorning) {
+        const notifiedBirthdays = getNotifiedBirthdays(todayStr);
+        for (const event of calendar.events) {
+          if (event.kind !== "birthday") continue;
+          const isTodayEvent = isToday(event.start, now) || (event.start <= now && event.end > now);
+          if (isTodayEvent) {
+            const bdayKey = `bday:${event.title}:${todayStr}`;
+            if (!notifiedBirthdays.includes(event.title) && !notifiedAlertIdsRef.current.has(bdayKey)) {
+              notifiedAlertIdsRef.current.add(bdayKey);
+              recordNotifiedBirthday(todayStr, event.title);
+              show(
+                {
+                  kind: "calendarAlert",
+                  id: bdayKey,
+                  priority: ActivityPriority.calendarAlert,
+                  alertType: "birthday",
+                  event,
+                  meetingLink: null,
+                },
+                8000
+              );
+              break;
+            }
+          }
+        }
+      }
+    };
+
+    checkAlerts();
+    const interval = setInterval(checkAlerts, 5000);
+    return () => clearInterval(interval);
+  }, [calendar.events, show]);
   const isNotificationActive = primary?.kind === "notification";
   // Any transient (notification, volume HUD...) holds the island awake.
   const hasTransient = primary !== null && primary.kind !== "media";
@@ -301,6 +421,20 @@ const FloatShell: React.FC = () => {
   }, [dismissKind]);
 
   const handlePillClick = useCallback(() => {
+
+
+    if (isDraggingRef.current) return;
+    clearIdleToOrbTimer();
+
+    if (primaryRef.current?.kind === "calendarAlert") {
+      clearClickTimer();
+      setSurfaceInitialTab("calendar");
+      dismissKind("calendarAlert");
+      transitionTo("expanded", "calendar-alert-click");
+      return;
+    }
+    setSurfaceInitialTab("home");
+
     if (isDraggingRef.current) return;
     clearIdleToOrbTimer();
     // The double-click (pill -> orb) gesture only exists in the orb modes.
@@ -334,7 +468,7 @@ const FloatShell: React.FC = () => {
         }
       }, DOUBLE_TAP_WINDOW_MS);
     }
-  }, [clearClickTimer, clearIdleToOrbTimer, transitionTo]);
+  }, [clearClickTimer, clearIdleToOrbTimer, dismissKind, transitionTo]);
 
   const handleOrbClick = useCallback(() => {
     if (isDraggingRef.current) return;
@@ -894,6 +1028,9 @@ const FloatShell: React.FC = () => {
     bottomRadius = orbOpen ? 24 : Math.round(orbSize / 2);
   } else if (primary?.kind === "notification") {
     [islandWidth, islandHeight, bottomRadius] = [Math.max(pillWidth, NOTIFICATION_MIN_WIDTH), NOTIFICATION_HEIGHT, 24];
+  } else if (primary?.kind === "calendarAlert") {
+    const alertWidth = primary.alertType === "birthday" ? 280 : (primary.meetingLink ? 360 : 300);
+    [islandWidth, islandHeight, bottomRadius] = [Math.max(pillWidth, alertWidth), 46, 20];
   } else if (primary) {
     islandWidth = pillWidth + (isPreview ? PREVIEW_EXTRA_WIDTH : 0);
     islandHeight = isPreview ? PREVIEW_HEIGHT : ACTIVITY_HEIGHT;
@@ -1250,6 +1387,7 @@ const FloatShell: React.FC = () => {
           <FloatSurface
             key="surface"
             onCollapse={collapse}
+            initialTab={surfaceInitialTab}
             media={activeMedia}
             multiState={multiState}
             onSelectSession={handleSelectSession}
@@ -1296,6 +1434,8 @@ const FloatShell: React.FC = () => {
             isNotificationActive={isNotificationActive}
             onDismissNotification={handleDismissNotification}
             showContent={settings.notificationContent}
+            calendarAlert={primary?.kind === "calendarAlert" ? primary : null}
+            onDismissAlert={() => dismissKind("calendarAlert")}
             volume={primary?.kind === "volume" ? primary : null}
             status={isStatusActivity(primary) ? primary : null}
             timer={primary?.kind === "timer" ? primary : null}
