@@ -1,103 +1,64 @@
 ---
-last_mapped_commit: 7e8c63329089a1fd40f6906071099b7166d784fe
-last_mapped_at: 2026-10-26
+last_mapped_commit: b0aa3e18784a67a4925e2a1ba9995da723742ca0
+last_mapped_at: 2026-10-30
 ---
 # Codebase Concerns
 
-**Analysis Date:** 2026-10-26
+**Analysis Date:** 2026-10-30
 
 ## Tech Debt
 
-**Monolithic Orchestrator Component (`FloatShell.tsx`):**
-- Issue: `src/components/float/FloatShell.tsx` is over 1,325 lines (~50KB) and manages an enormous surface area of responsibilities: visual mode state machine, gesture handling (wheel volume, wheel skip), dwell timers, drag settlements, keyboard focus, backdrop shapes, hit test rectangle generation, and activity subscriptions.
-- Files: `src/components/float/FloatShell.tsx`
-- Impact: High cognitive complexity; hard to modify mode transitions or add new gesture interactions without unintended side effects.
-- Fix approach: Extract concerns into modular hooks: `useIslandGeometry()`, `useIslandGestures()`, `useWindowHitRegions()`, and `useIslandDrag()`.
+**Fixed Window Size & Hit-Testing:**
+- Issue: The application window is fixed at 720×400 logical pixels, relying on dynamic cursor testing (`set_ignore_cursor_events`) to allow click-through.
+- Files: `src-tauri/src/window.rs`, `src/components/float/FloatShell.tsx`
+- Impact: If the expanded surface UI grows beyond 720×400px or if multi-monitor coordinate translation has minor DPI discrepancies, clicks may be blocked or pass through unexpectedly.
+- Fix approach: Keep surface layouts strictly constrained within the bounding region or implement robust DPI-aware monitor boundary tracking.
 
-**Large Settings View Component (`FloatSettingsView.tsx`):**
-- Issue: `src/components/float/FloatSettingsView.tsx` is ~800 lines (~31KB), packing all settings categories, sliders, segmented pickers, and help text into one monolithic file.
-- Files: `src/components/float/FloatSettingsView.tsx`
-- Impact: Difficult to maintain and review as new configuration toggles are added.
-- Fix approach: Break into category components (e.g., `GeneralSettings.tsx`, `AppearanceSettings.tsx`, `PrivacySettings.tsx`, `IntegrationSettings.tsx`).
+**State Storage Fragmentation:**
+- Issue: Settings and tasks are stored across both browser `localStorage` and native filesystem JSON (`shelf.json`, `window-position.json`).
+- Files: `src/services/settings.ts`, `src/activities/tasksStore.ts`, `src-tauri/src/shelf.rs`, `src-tauri/src/window.rs`
+- Impact: Clearing browser cookies or cache could reset frontend settings, while filesystem files persist.
+- Fix approach: Eventually unify persistent storage into a single local JSON store managed cleanly via Tauri IPC.
 
-## Fragile Areas
+## Known Bugs & Edge Cases
 
-**Cursor Hit-Testing Synchronization:**
-- Files: `src/components/float/FloatShell.tsx` and `src-tauri/src/window.rs`
-- Why fragile: The transparent window remains click-through via a 16ms native polling loop that compares cursor position against `HitRect` boundaries sent from the React UI. During rapid Framer Motion morphing (e.g. notch expanding on hover or shrinking to orb), there is a brief latency window between CSS/SVG bounding box changes and the native thread updating `state.regions`.
-- Safe modification: Ensure `MORPH_SETTLE_MS` and hit region padding (`HIT_PADDING = 4`) remain generous enough to encompass active spring transitions.
-- Test coverage: No automated tests; currently relies entirely on manual verification.
-
-**Hardcoded Window Geometry Synchronization:**
-- Files: `src/components/float/FloatShell.tsx` (`WINDOW_WIDTH = 720`, `SURFACE_WIDTH = 580`, `SURFACE_HEIGHT = 244`) and `src-tauri/src/window.rs` (`WINDOW_WIDTH = 720.0`, `WINDOW_HEIGHT = 400.0`)
-- Why fragile: The native window size is fixed at 720×400 logical pixels. If the expanded panel or split bubble exceeds these dimensions, it will be clipped without native window scrollbars.
-- Safe modification: When expanding panel dimensions or adding wider split bubbles, update constants in both files simultaneously.
-
-**DPI Scaling and Multi-Monitor Coordinate Mapping:**
-- Files: `src-tauri/src/window.rs` and `src-tauri/src/backdrop.rs`
-- Why fragile: Converting between logical pixels in WebView2 and physical pixels in Win32 APIs (`GetDpiForWindow / 96.0`) can introduce 1-pixel rounding discrepancies when windows straddle different monitor scaling configurations (e.g. 150% laptop screen vs. 100% external monitor).
-- Safe modification: Test multi-monitor boundary crossings thoroughly when adjusting window positioning math.
+**Multi-Monitor DPI Scaling:**
+- Symptoms: When dragging between monitors with different DPI scalings (e.g. 100% and 150%), hit-test rectangles or window positioning may temporarily misalign until settled.
+- Files: `src-tauri/src/window.rs`, `src/platform/index.ts`
+- Trigger: Rapidly dragging the island across screen boundaries.
+- Workaround: The native window position resets and recalculates monitor metrics on drag settlement.
 
 ## Security Considerations
 
-**Calendar Subscription Token Storage:**
-- Risk: Private iCal / Webcal URLs often embed query string authorization tokens (e.g., Google Calendar or Outlook secret feed URLs).
-- Files: `src/services/settings.ts` (`calendarUrl`)
-- Current mitigation: Stored in the local browser profile `localStorage` under `float_settings_v1`.
-- Recommendations: Consider storing sensitive credentials or URL tokens via Windows Credential Manager (`Windows.Security.Credentials.PasswordVault`) using a dedicated Tauri command.
-
-**Clipboard History Sensitivity:**
-- Risk: Unintended capture of sensitive copied strings (e.g., recovery phrases, API keys).
-- Files: `src-tauri/src/clipboard.rs`
-- Current mitigation: Strictly in-memory (never written to disk), filtered against Windows exclusion flags (`CanIncludeInClipboardHistory = 0` and `ExcludeClipboardContentFromMonitorProcessing`), and capped at 24 entries.
-- Recommendations: Provide a quick UI pause toggle directly in the Tray / Clipboard view and consider automatic timeout purges.
-
-**Webview Content Security Policy (CSP):**
-- Risk: `src-tauri/tauri.conf.json` sets `"csp": null`.
-- Files: `src-tauri/tauri.conf.json`
-- Current mitigation: App runs local bundled assets without external script execution.
-- Recommendations: Define a strict CSP restricting script sources to `'self'`.
+**Private Calendar Feed URLs:**
+- Risk: User's private iCal link (which may contain sensitive calendar event titles and attendee data) is stored in the application.
+- Files: `src/services/settings.ts`, `src-tauri/src/calendar.rs`
+- Current mitigation: URLs and event data are never transmitted to third-party cloud servers; they are only stored locally and requested directly from the provider.
+- Recommendations: Ensure URLs are never printed in debug logs or committed to repositories.
 
 ## Performance Bottlenecks
 
-**Active Visualizer Audio Capture:**
-- Problem: Live audio visualization processes WASAPI loopback streams and emits IPC events at ~30Hz.
-- Files: `src-tauri/src/visualizer.rs`
-- Cause: Continuous RMS calculations across 3 frequency bands and frequent Tauri IPC event dispatches (`audio-levels`).
-- Current mitigation: Capture only runs when `set_visualizer_active(true)` is explicitly toggled by the frontend when an equalizer is visible on screen.
-- Improvement path: Throttle emission frequency on battery power or lower refresh rate when minimized.
+**Background Hit-Test Polling:**
+- Problem: The native background thread tests the mouse cursor against hit regions at 60Hz (16ms tick).
+- Files: `src-tauri/src/window.rs`
+- Cause: Ensuring low-latency click-through response when the mouse enters or leaves the dynamic island.
+- Improvement path: Optimize mouse coordinate testing logic with simple bounding-box rejection before detailed polygon testing.
 
-**Hardware & Privacy Registry Polling:**
-- Problem: Background thread polls `HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore` for camera and microphone usage once per second.
-- Files: `src-tauri/src/sysmon.rs`
-- Improvement path: Leverage Windows registry notification events (`RegNotifyChangeKeyValue`) rather than polling where possible.
+## Fragile Areas
 
-## Scaling Limits
-
-**File Shelf & Clipboard In-Memory Limits:**
-- Current capacity: File shelf capped at 48 items (`MAX_ITEMS = 48` in `src-tauri/src/shelf.rs`); clipboard history capped at 24 items (`MAX_ENTRIES = 24` in `src-tauri/src/clipboard.rs`) with max text length 20,000 characters and max image size 32MB.
-- Limit: Memory usage is bounded by design.
-- Scaling path: Maintain existing caps; ensure old items are promptly dropped.
-
-## Dependencies at Risk
-
-**Platform Tight-Coupling (Windows Only):**
-- Risk: Heavy reliance on WinRT and Win32 crates (`win-gsmtc`, `wmi`, `windows` 0.48, `cpal`) makes cross-platform porting to macOS or Linux a complete rewrite of the native backend.
-- Impact: FLOAT is currently Windows-only.
-- Migration plan: Maintain the clean Platform Abstraction Layer (`src/platform/index.ts`) so future OS backends only need to fulfill the existing TypeScript IPC contract.
+**Windows GSMTC Session Tracking:**
+- Files: `src-tauri/src/media.rs`
+- Why fragile: Windows media transport sessions can rapidly cycle, report stale playback states, or fail to yield album art streams if apps (e.g. Spotify, Chrome) lock the handle.
+- Safe modification: Maintain defensive timeout wrappers and fallback placeholders when album art streams fail.
 
 ## Test Coverage Gaps
 
-**Zero Automated Test Coverage:**
-- What's not tested:
-  - Activity priority sorting and preemption in `src/activities/useActivities.ts`.
-  - Continuous corner Bézier math in `src/island/shape.ts`.
-  - Settings parsing and version upgrade migrations in `src/services/settings.ts`.
-  - Timer wall-clock drift prevention in `src/activities/timerStore.ts`.
-- Files: All source files across `src/` and `src-tauri/src/`.
-- Risk: High risk of regressions during UI refactoring or feature additions.
-- Priority: High.
+**Frontend Automated Unit Tests:**
+- What's not tested: React components and activities store state transitions lack automated Jest/Vitest unit tests.
+- Files: `src/components/float/*.tsx`, `src/activities/*.ts`
+- Risk: Regressions in activity priority ordering or tab transitions could occur without compiler detection.
+- Priority: Medium.
 
 ---
 
-*Concerns audit: 2026-10-26*
+*Concerns audit: 2026-10-30*

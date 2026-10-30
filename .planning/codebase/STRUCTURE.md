@@ -1,158 +1,149 @@
 ---
-last_mapped_commit: 7e8c63329089a1fd40f6906071099b7166d784fe
-last_mapped_at: 2026-10-26
+last_mapped_commit: b0aa3e18784a67a4925e2a1ba9995da723742ca0
+last_mapped_at: 2026-10-30
 ---
 # Codebase Structure
 
-**Analysis Date:** 2026-10-26
+**Analysis Date:** 2026-10-30
 
 ## Directory Layout
 
-```
+```text
 FLOAT/
-├── assets/                     # Screenshots and visual media for documentation
-│   └── screenshots/            # UI screenshots for README and releases
-├── docs/                       # Project documentation and user guides
-├── scripts/                    # Maintenance, release, and packaging scripts
-├── src/                        # React 19 Frontend source code
-│   ├── activities/             # Live activities state, priority scheduling, and stores
-│   ├── components/             # React UI components
-│   │   └── float/              # Island notch, orb, pill, surface views, and HUDs
-│   ├── island/                 # Island vector geometry and Apple-style corner math
-│   ├── platform/               # Platform Abstraction Layer (Tauri IPC wrappers)
-│   ├── services/               # Persistent settings and global domain services
-│   ├── App.tsx                 # Root React application component
-│   ├── index.css               # Global CSS resets, typography, and theme tokens
-│   ├── main.tsx                # Frontend entry point and error interception
-│   └── vite-env.d.ts           # Vite client TypeScript type declarations
-├── src-tauri/                  # Rust Native Backend source code
-│   ├── capabilities/           # Tauri v2 security and window permission definitions
-│   ├── icons/                  # Windows .ico and multi-resolution application icons
-│   ├── src/                    # Rust source modules (WinRT/Win32 integrations)
-│   ├── build.rs                # Tauri build script
-│   ├── Cargo.toml              # Rust crate manifest and dependency definitions
-│   └── tauri.conf.json         # Tauri v2 application configuration
-├── index.html                  # HTML entry point for the desktop webview
-├── package.json                # Frontend dependencies and npm scripts
-├── tsconfig.json               # TypeScript compiler configuration
-├── tsconfig.node.json          # Vite TypeScript configuration
-└── vite.config.ts              # Vite bundler configuration
+├── .planning/                  # Project roadmap, state, requirements, codebase map
+│   ├── codebase/               # 7 structured codebase documentation files
+│   └── research/               # Architecture, stack, and features research
+├── assets/                     # App branding icons and promotional images
+├── docs/                       # Markdown guides and architecture documentation
+├── scripts/                    # Build, installation, and helper automation scripts
+├── src/                        # Frontend React 19 source code
+│   ├── activities/             # State machine & external stores for live activities
+│   ├── components/             # Reusable UI components
+│   │   └── float/              # Floating island, shell, notch, pill, tabs, widgets
+│   ├── island/                 # SVG vector math for continuous rounded corners
+│   ├── platform/               # Platform Abstraction Layer (PAL) wrapping Tauri
+│   ├── services/               # User settings and local persistence services
+│   ├── App.tsx                 # Root application wrapper
+│   ├── index.css               # Global theme variables, reset, and glassmorphism CSS
+│   └── main.tsx                # Entry point, unhandled exception handlers, DOM mount
+├── src-tauri/                  # Native Rust Tauri v2 backend
+│   ├── capabilities/           # Tauri permissions and security configuration
+│   ├── icons/                  # Application icons for Windows executable and tray
+│   ├── src/                    # Rust source modules (window, media, notifications, etc.)
+│   ├── Cargo.toml              # Rust crate dependencies and build configuration
+│   └── tauri.conf.json         # Tauri windowing, bundle, and runtime configuration
+├── index.html                  # HTML entry point hosting WebView2 React DOM
+├── package.json                # Node dependencies and build scripts
+├── tsconfig.json               # TypeScript strict compilation rules
+└── vite.config.ts              # Vite 7 build configuration and dev server setup
 ```
 
 ## Directory Purposes
 
 **`src/activities/`:**
-- Purpose: Orchestrates Live Activities that display in the notch, pill, or split bubble.
-- Contains: Priority scheduling logic, TypeScript interfaces, and `useSyncExternalStore` state hooks.
-- Key files:
-  - `src/activities/types.ts`: Activity models and priority constants.
-  - `src/activities/useActivities.ts`: Primary hook managing active tasks, dwell times, and dismissals.
-  - `src/activities/tasksStore.ts`: Local to-do task list store.
-  - `src/activities/timerStore.ts`: Wall-clock resilient timer/stopwatch engine.
+- Purpose: Priority arbitration and external state stores for desktop activities.
+- Contains: `useActivities.ts`, `tasksStore.ts`, `timerStore.ts`, `types.ts`.
+- Key files: `src/activities/types.ts`, `src/activities/useActivities.ts`.
 
 **`src/components/float/`:**
-- Purpose: All React visual components that make up the dynamic island and expanded panel.
-- Contains: TSX component files paired with dedicated CSS stylesheets.
-- Key files:
-  - `src/components/float/FloatShell.tsx`: Central state machine and Framer Motion layout orchestrator.
-  - `src/components/float/FloatPill.tsx`: Docked notch / floating pill container.
-  - `src/components/float/FloatSurface.tsx`: Expanded tabbed panel.
-  - `src/components/float/FloatOrb.tsx`: Ambient resting circle mode.
-  - `src/components/float/SplitBubble.tsx`: Auxiliary bubble for concurrent secondary activities.
-  - `src/components/float/ControlCenter.tsx`: Hardware toggles (Wi-Fi, Bluetooth, volume, brightness).
-  - `src/components/float/HomeView.tsx`: Focused Home tab showing clock, weather, and upcoming events.
-  - `src/components/float/Shelf.tsx`: Drag-and-drop file parking lot.
-  - `src/components/float/ClipboardView.tsx`: In-memory clipboard history view.
+- Purpose: Dynamic island user interface, command center views, widgets, and styles.
+- Contains: React components (`*.tsx`) and paired scoped stylesheets (`*.css`).
+- Key files: `FloatShell.tsx`, `FloatPill.tsx`, `FloatSurface.tsx`, `FloatOrb.tsx`, `ControlCenter.tsx`, `HomeView.tsx`.
 
 **`src/island/`:**
-- Purpose: Mathematical vector generation for continuous curvature shapes.
-- Key files:
-  - `src/island/shape.ts`: Computes SVG path definitions for docked notch with ears vs. floating capsule.
+- Purpose: Procedural continuous curvature geometry.
+- Key file: `src/island/shape.ts`.
 
 **`src/platform/`:**
-- Purpose: Hardware/OS isolation layer between React and Tauri IPC.
-- Key files:
-  - `src/platform/index.ts`: Strongly typed wrappers for Tauri commands, events, and window management.
-  - `src/platform/media.ts`: Media session types and status payloads.
+- Purpose: Isolated abstraction boundary between React components and native Tauri APIs.
+- Key files: `src/platform/index.ts`, `src/platform/media.ts`.
 
 **`src/services/`:**
-- Purpose: Persistence and configuration management.
-- Key files:
-  - `src/services/settings.ts`: Local storage settings reader/writer with schema migration and listener hooks.
+- Purpose: Local configuration persistence and DOM theme application.
+- Key file: `src/services/settings.ts`.
 
 **`src-tauri/src/`:**
-- Purpose: Native Windows interop, background polling threads, and system event handlers.
+- Purpose: Native Windows OS integration, background listeners, and IPC handlers.
 - Key files:
-  - `src-tauri/src/lib.rs`: Tauri builder, command handler registry, and subsystem initialization.
-  - `src-tauri/src/window.rs`: Click-through hit test monitor loop and monitor DPI/position management.
-  - `src-tauri/src/backdrop.rs`: GPU-accelerated blur window using WinRT Composition.
-  - `src-tauri/src/media.rs`: GSMTC media session monitoring and album artwork extraction.
-  - `src-tauri/src/visualizer.rs`: WASAPI loopback audio capture and 3-band energy calculations.
-  - `src-tauri/src/notifications.rs`: Windows UserNotificationListener integration.
-  - `src-tauri/src/connectivity.rs`: Wi-Fi network and Bluetooth device management.
-  - `src-tauri/src/sysmon.rs`: Volume, power, and camera/mic privacy status monitor.
+  - `lib.rs`: Entry point registering plugins, IPC command handlers, and setup routines.
+  - `window.rs`: Click-through hit-testing loop, drag settlements, window position state.
+  - `backdrop.rs`: Hardware-accelerated composition glass backdrop.
+  - `media.rs`: Windows GSMTC session monitoring and control.
+  - `visualizer.rs`: Low-latency WASAPI loopback audio visualizer.
+  - `notifications.rs`: Windows toast notification listener.
+  - `connectivity.rs`: Wi-Fi and Bluetooth management.
+  - `calendar.rs`: iCalendar parsing and event scheduling.
+  - `clipboard.rs`: Clipboard history listener.
+  - `shelf.rs`: File shelf drag-in / drag-out.
 
 ## Key File Locations
 
 **Entry Points:**
-- `src/main.tsx`: Webview application initialization, global error catchers, and DOM mounting.
-- `src-tauri/src/main.rs`: Windows executable entry point invoking `float_lib::run()`.
+- `src/main.tsx`: React WebView2 entry point.
+- `src-tauri/src/main.rs` & `src-tauri/src/lib.rs`: Tauri native executable entry points.
 
 **Configuration:**
-- `src-tauri/tauri.conf.json`: Native window dimensions, transparency, security CSP, and bundle metadata.
-- `src/services/settings.ts`: Default user configuration and local persistence logic.
-- `vite.config.ts`: Dev server port 1421, strict port locking, and HMR setup.
+- `package.json`: NPM package manifest.
+- `vite.config.ts`: Vite dev server and bundler config.
+- `tsconfig.json`: TypeScript strict compiler flags.
+- `src-tauri/Cargo.toml`: Rust crate dependencies.
+- `src-tauri/tauri.conf.json`: Tauri windowing and packaging manifest.
 
-**Core Logic:**
-- `src/components/float/FloatShell.tsx`: Coordinates sizing, animation triggers, hit testing, and gestures.
-- `src-tauri/src/window.rs`: Native mouse hit-testing loop running at 16ms intervals.
-
-**Testing:**
-- Currently no automated unit or integration tests exist in the project (see `TESTING.md` and `CONCERNS.md`).
+**Core UI Orchestration:**
+- `src/components/float/FloatShell.tsx`: Coordinates modes, coordinates, dragging, hit regions.
+- `src/components/float/FloatSurface.tsx`: Hosts expanded tabs.
 
 ## Naming Conventions
 
-**Files:**
-- React Components: PascalCase matching component name (e.g., `FloatShell.tsx`, `MediaWidgetSurface.tsx`).
-- Stylesheets: Matching component name with `.css` extension (e.g., `FloatShell.css`).
-- Utilities, Stores, and Hooks: camelCase (e.g., `useActivities.ts`, `tasksStore.ts`, `mediaTimeline.ts`).
-- Rust Source Modules: snake_case (e.g., `window.rs`, `sysmon.rs`, `appicon.rs`).
+**Files & Directories:**
+- React Components: PascalCase matching exported component (`FloatShell.tsx`, `HomeView.tsx`).
+- Component Stylesheets: PascalCase matching the component (`FloatShell.css`, `ControlCenter.css`).
+- Utilities & Stores: camelCase (`tasksStore.ts`, `useAlbumArt.ts`, `settings.ts`).
+- Rust Modules: snake_case (`window.rs`, `backdrop.rs`, `connectivity.rs`).
 
-**Directories:**
-- Frontend: lowercase words (e.g., `activities`, `components`, `island`, `platform`, `services`).
-- Backend: kebab-case for Tauri root (`src-tauri`) and lowercase for subdirectories (`capabilities`, `icons`, `src`).
+**Functions & Variables:**
+- TypeScript functions & variables: camelCase (`setHitRegions()`, `activeTab`, `isHovered`).
+- TypeScript Interfaces / Types: PascalCase (`HitRect`, `FloatSettings`, `ActivityPriority`).
+- Rust functions: snake_case (`set_hit_regions`, `query_system_state`).
+- Constants: UPPER_SNAKE_CASE (`WINDOW_WIDTH`, `MORPH_SETTLE_MS`).
 
 ## Where to Add New Code
 
-**New Live Activity:**
-- Activity definition: Add new interface and discriminate type in `src/activities/types.ts`.
-- Priority assignment: Define priority rank in `ActivityPriority` table in `src/activities/types.ts`.
-- Listener hook: Subscribe to native event in `src/activities/useActivities.ts`.
-- UI Rendering: Add view branch in `src/components/float/FloatPill.tsx` or `src/components/float/StatusHud.tsx`.
+**New Expanded Surface View (e.g. New Tab):**
+- Component: `src/components/float/MyNewView.tsx`
+- Styles: `src/components/float/MyNewView.css`
+- Surface registration: Add tab identifier and mount component inside `src/components/float/FloatSurface.tsx`.
 
-**New Surface Tab / Panel:**
-- Add tab key to `SurfaceTab` union in `src/components/float/FloatSurface.tsx`.
-- Create component `src/components/float/YourNewView.tsx` and stylesheet `src/components/float/YourNewView.css`.
-- Add tab button and panel rendering in `src/components/float/FloatSurface.tsx`.
+**New Live Activity (e.g. Pomodoro Alert):**
+- Activity type definition: `src/activities/types.ts`
+- State handling: `src/activities/useActivities.ts` or new dedicated store in `src/activities/`
+- Render logic: Add pill rendering in `src/components/float/FloatPill.tsx`.
 
-**New Windows System Integration (Rust):**
-- Add new module `src-tauri/src/your_subsystem.rs`.
-- Expose module in `src-tauri/src/lib.rs` and register Tauri commands in `tauri::generate_handler![]`.
-- Initialize in `.setup(|app| { ... })` in `src-tauri/src/lib.rs`.
-- Expose typed TypeScript invoke/listen function in `src/platform/index.ts`.
+**New Native Windows Integration:**
+- Rust module: `src-tauri/src/my_feature.rs`
+- Module declaration & IPC registration: `src-tauri/src/lib.rs`
+- Platform abstraction method: `src/platform/index.ts`
+
+**Shared Helper Utility:**
+- Utility function: Add to `src/platform/index.ts` (if native) or appropriate service module.
 
 ## Special Directories
 
-**`src-tauri/capabilities/`:**
-- Purpose: Contains Tauri v2 permission JSON manifests (`default.json`).
-- Generated: No (manually managed security contract).
+**`.planning/`:**
+- Purpose: GSD workflow planning documents, roadmap, requirements, and codebase maps.
+- Generated: Managed by GSD commands.
 - Committed: Yes.
 
-**`assets/screenshots/`:**
-- Purpose: High-resolution screenshots showcasing notch, panel, and widgets.
-- Generated: No.
-- Committed: Yes.
+**`src-tauri/target/`:**
+- Purpose: Cargo build artifacts and compiled binaries.
+- Generated: Yes.
+- Committed: No (in `.gitignore`).
+
+**`dist/`:**
+- Purpose: Bundled Vite production frontend assets.
+- Generated: Yes.
+- Committed: No (in `.gitignore`).
 
 ---
 
-*Structure analysis: 2026-10-26*
+*Structure analysis: 2026-10-30*

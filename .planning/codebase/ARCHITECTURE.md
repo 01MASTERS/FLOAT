@@ -1,164 +1,187 @@
 ---
-last_mapped_commit: 7e8c63329089a1fd40f6906071099b7166d784fe
-last_mapped_at: 2026-10-26
+last_mapped_commit: b0aa3e18784a67a4925e2a1ba9995da723742ca0
+last_mapped_at: 2026-10-30
 ---
-<!-- refreshed: 2026-10-26 -->
+<!-- refreshed: 2026-10-30 -->
 
 # Architecture
 
-**Analysis Date:** 2026-10-26
+**Analysis Date:** 2026-10-30
 
 ## System Overview
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                       React 19 Presentation Layer                           │
-│                       `src/components/float/`                               │
-│  ┌─────────────────┐   ┌──────────────────┐   ┌──────────────────────────┐  │
-│  │   FloatPill     │   │   FloatSurface   │   │         FloatOrb         │  │
-│  │ (Media, Notifs) │   │ (Home, Settings) │   │     (Ambient Resting)    │  │
-│  └────────┬────────┘   └────────┬─────────┘   └────────────┬─────────────┘  │
-│           │                     │                          │                │
-│           └─────────────────────┼──────────────────────────┘                │
-│                                 ▼                                           │
-│               FloatShell (Central Orchestration & State)                    │
-│                      `src/components/float/FloatShell.tsx`                  │
-│                                 │                                           │
-│       ┌─────────────────────────┴──────────────────────────┐                │
-│       ▼                                                    ▼                │
-│  Activity Priority Stack                            SVG Shape Engine        │
-│  `src/activities/useActivities.ts`                 `src/island/shape.ts`    │
-└─────────────────────────────────┬───────────────────────────────────────────┘
-                                  │
-                                  ▼
+│                       Presentation Layer (React 19)                         │
+├────────────────────┬────────────────────┬───────────────────────────────────┤
+│    FloatShell      │     FloatPill      │           FloatSurface            │
+│ `src/.../Shell.tsx`│ `src/.../Pill.tsx` │     `src/.../FloatSurface.tsx`    │
+│  (Window bounds,   │  (Docked notch &   │   (Home, Controls, Shelf, Tasks,  │
+│   drag, hit-tests) │   active pill)     │    Timer, Settings, Briefing)     │
+└─────────┬──────────┴─────────┬──────────┴─────────────────┬─────────────────┘
+          │                    │                            │
+          ▼                    ▼                            ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Platform Abstraction Layer (PAL)                         │
-│                    `src/platform/index.ts` & `media.ts`                     │
-└─────────────────────────────────┬───────────────────────────────────────────┘
-                                  │  IPC: invoke() / listen()
-                                  ▼
+│                 Activities & State Machine (React External Stores)          │
+│       `src/activities/useActivities.ts` | `tasksStore.ts` | `timerStore.ts` │
+│                   Priority arbitration & event evaluation                   │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Tauri v2 Native Rust Backend                         │
-│                        `src-tauri/src/lib.rs`                               │
-│  ┌───────────────────────┐  ┌──────────────────────┐  ┌──────────────────┐  │
-│  │   Window & Hit-Test   │  │   Compositor Glass   │  │ Media Subsystem  │  │
-│  │   `window.rs`         │  │   `backdrop.rs`      │  │ `media.rs`       │  │
-│  └───────────────────────┘  └──────────────────────┘  └──────────────────┘  │
-│  ┌───────────────────────┐  ┌──────────────────────┐  ┌──────────────────┐  │
-│  │ Notifications Listener│  │ Audio Loopback (cpal)│  │ Hardware/Privacy │  │
-│  │ `notifications.rs`    │  │ `visualizer.rs`      │  │ `sysmon.rs`      │  │
-│  └───────────────────────┘  └──────────────────────┘  └──────────────────┘  │
-└─────────────────────────────────┬───────────────────────────────────────────┘
-                                  │
-                                  ▼
+│                     Platform Abstraction Layer (PAL)                        │
+│                           `src/platform/index.ts`                           │
+│        (Type-safe window bounds, IPC commands, OS event listeners)          │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ Tauri IPC Bridge (`invoke`, `listen`)
+                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                     Windows OS Kernel / WinRT / Win32                       │
-│      DWM Backdrop | GSMTC | UserNotificationListener | WASAPI Loopback      │
+│                     Native Windows Interop Layer (Rust)                     │
+│  `window.rs` (Hit-test / Click-through) │ `backdrop.rs` (DWM HostBackdrop)  │
+│  `media.rs` (GSMTC Sessions)            │ `visualizer.rs` (WASAPI Loopback) │
+│  `notifications.rs` (WinRT Listener)    │ `connectivity.rs` (Radios/WiFi)   │
+│  `calendar.rs` (ICS Parser)             │ `clipboard.rs` (Win32 Clipboard)  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Architectural Layers
+## Component Responsibilities
 
-### 1. Presentation & Component Layer (`src/components/float/`)
+| Component | Responsibility | File |
+|-----------|----------------|------|
+| `FloatShell` | Root orchestrator: handles window hit-test coordination, dragging, modes (`orb`, `compact`, `compactPreview`, `expanded`) | `src/components/float/FloatShell.tsx` |
+| `FloatPill` | Docked notch or floating pill rendering the primary active activity | `src/components/float/FloatPill.tsx` |
+| `FloatSurface` | Expanded command center hosting tabbed views: Home, Tray, Tasks, Timer, Controls, Notifications, Settings | `src/components/float/FloatSurface.tsx` |
+| `FloatOrb` | Compact 48×48 resting bubble shown after inactivity when floating | `src/components/float/FloatOrb.tsx` |
+| `SplitBubble` | Detached satellite pill rendering secondary active activity | `src/components/float/SplitBubble.tsx` |
+| `ControlCenter` | Quick hardware toggles (Wi-Fi, Bluetooth, volume, brightness, battery) | `src/components/float/ControlCenter.tsx` |
+| `HomeView` | Daily briefing view with weather, next calendar meeting, active task, and media status | `src/components/float/HomeView.tsx` |
+| `TasksView` | Lightweight task checklist with create, toggle, and delete | `src/components/float/TasksView.tsx` |
+| `TimerView` | Active stopwatch / countdown timer controls | `src/components/float/TimerView.tsx` |
+| `ClipboardView`| Clipboard history manager with copy, delete, and image previews | `src/components/float/ClipboardView.tsx` |
+| `Shelf` | Drag-and-drop file shelf with native external drag-out | `src/components/float/Shelf.tsx` |
+| `FloatSettingsView`| User configuration (notch vs pill, glass blur, autostart, hotkey, calendar URL) | `src/components/float/FloatSettingsView.tsx` |
+| `islandPath` | Vector math generating continuous curvature rounded rectangles with notch ears | `src/island/shape.ts` |
+| `PAL` | Isolated platform abstraction module shielding UI from Tauri IPC calls | `src/platform/index.ts` |
 
-- **FloatShell (`src/components/float/FloatShell.tsx`):** Root orchestrator. Manages visual mode transitions (`orb`, `compact`, `compactPreview`, `expanded`), hover detection, drag settlements, keyboard focus, and window hit testing coordinates.
-- **FloatPill (`src/components/float/FloatPill.tsx`):** Docked notch or floating pill rendering the primary active activity.
-- **FloatSurface (`src/components/float/FloatSurface.tsx`):** Expanded command center hosting tabbed views: Home, Tray (Shelf & Clipboard), Tasks, Timer, Notifications, Controls, and Settings.
-- **FloatOrb (`src/components/float/FloatOrb.tsx`):** Compact 48×48 ambient resting orb shown after inactivity.
-- **SplitBubble (`src/components/float/SplitBubble.tsx`):** Detached satellite bubble rendering secondary active media or activities alongside the pill.
-- **Shape Generator (`src/island/shape.ts`):** Constructs continuous curvature SVG vector paths with iOS-style corner smoothing (0.6) and concave ears for docked notch mode.
+## Pattern Overview
 
-### 2. State & Live Activities Layer (`src/activities/`)
+**Overall:** Layered Desktop Architecture with Priority-Driven Reactive State Machine and Win32 Click-Through Canvas.
 
-- **useActivities (`src/activities/useActivities.ts`):** Evaluates all incoming events and maintains a priority queue of active tasks and alerts.
-- **Activity Priorities (`src/activities/types.ts`):**
-  - Volume HUD / Brightness HUD: `120` (Highest priority, user feedback)
-  - Timer Done: `115`
-  - Battery Alerts: `110`
-  - Bluetooth Device Status: `108`
-  - Privacy Indicators (Mic/Camera): `105`
-  - Focus Assist: `104`
-  - Notification Previews: `100`
-  - Running Timer: `30`
-  - Background Media Playback: `10` (Lowest priority, baseline activity)
-- **External Stores:** `src/activities/tasksStore.ts` and `src/activities/timerStore.ts` utilize React 18/19 `useSyncExternalStore` for flicker-free out-of-component synchronization.
+**Key Characteristics:**
+- **Fixed Window Canvas with Dynamic Hit-Testing**: The desktop window remains a fixed 720×400 canvas. Transparent regions pass clicks through to Windows desktop apps; interactive regions capture cursor events via `set_ignore_cursor_events`.
+- **Decoupled Platform Adapter**: UI components never call Tauri's `@tauri-apps/api` directly; all native communication flows through `src/platform/index.ts`.
+- **External Store Synchronization**: Transient global states like tasks and timers use React 18/19 `useSyncExternalStore` for immediate, tear-free subscription without context re-renders.
 
-### 3. Platform Abstraction Layer (PAL) (`src/platform/`)
+## Layers
 
-- `src/platform/index.ts` encapsulates all `@tauri-apps/api` invoke commands and event listeners behind strongly typed functions, protecting UI components from direct native coupling.
-- Handles hit-test boundaries (`setHitRegions`), window drag initiation (`startWindowDrag`), and system event streams (`subscribeToPower`, `subscribeToPrivacy`).
+**1. Presentation Layer:**
+- Purpose: Render fluid dynamic island UI and capture user interactions.
+- Location: `src/components/float/`
+- Contains: React components, styled CSS files, Framer Motion animations.
+- Depends on: Activities layer (`src/activities/`), PAL (`src/platform/`).
 
-### 4. Native Engine & Windows Interop (`src-tauri/src/`)
+**2. State & Activities Layer:**
+- Purpose: Prioritize desktop events (calls, timers, volume HUDs, notifications, media).
+- Location: `src/activities/`
+- Contains: `useActivities.ts`, `tasksStore.ts`, `timerStore.ts`, `types.ts`.
+- Depends on: PAL (`src/platform/`).
 
-- **Transparent Click-Through Windowing (`src-tauri/src/window.rs`):** The app window is fixed at 720×400 logical pixels. A background thread runs at 60Hz (16ms tick), testing the mouse cursor against frontend-reported hit rectangles. When the cursor is outside the island, `set_ignore_cursor_events(true)` passes clicks to underlying Windows desktop applications.
-- **Hardware-Accelerated Liquid Glass (`src-tauri/src/backdrop.rs`):** A dedicated companion HWND placed directly behind the main window uses `Windows.UI.Composition` with `DWMWA_USE_HOSTBACKDROPBRUSH` to blur the desktop wallpaper and open windows on the GPU without costly CPU screen capture.
-- **Media & Audio Engine (`src-tauri/src/media.rs` & `src-tauri/src/visualizer.rs`):** Queries active Windows GSMTC media sessions, extracts album art, and samples WASAPI loopback streams using `cpal` to calculate 3-band frequency energy.
+**3. Platform Abstraction Layer (PAL):**
+- Purpose: Normalize and isolate Tauri commands and events.
+- Location: `src/platform/`
+- Contains: Strongly typed invoke wrappers, event listeners, payload interfaces.
+- Depends on: `@tauri-apps/api`.
+
+**4. Native Windows Backend:**
+- Purpose: Execute low-level Win32, WinRT, and WASAPI operations on background threads.
+- Location: `src-tauri/src/`
+- Contains: Rust modules for window management, DWM backdrop, GSMTC media, audio loopback, notifications, connectivity.
 
 ## Data Flow
 
-```text
-[Windows OS Event] 
-        │ (e.g., Media track change, Toast notification, Volume key pressed)
-        ▼
-[Rust Background Thread]
-        │ (Transforms WinRT / Win32 payload into Rust struct)
-        ▼
-[Tauri Event Emitter] (`app.emit("notification-presence", payload)`)
-        │
-        ▼
-[Platform Listener] (`subscribeToNotificationPresence` in `src/platform/index.ts`)
-        │
-        ▼
-[useActivities Hook] (`src/activities/useActivities.ts`)
-        │ (Assigns priority, sets dwell timer, dispatches split bubble if needed)
-        ▼
-[FloatShell State Machine]
-        │ (Computes target width/height/mode, renders Framer Motion springs)
-        ▼
-[Hit Region Reporting] (`setHitRegions(rects)` back to Rust `window.rs`)
-```
+### Primary Request Path (Event to UI)
+
+1. OS event occurs in Windows (e.g. Volume key pressed, song changed, toast notification arrived).
+2. Rust background thread receives event in `src-tauri/src/volume.rs`, `media.rs`, or `notifications.rs`.
+3. Rust emits Tauri event to WebView (`app.emit("volume-changed", ...)`).
+4. PAL listener receives event in `src/platform/index.ts` and notifies subscriber.
+5. `useActivities` hook evaluates priority and pushes active activity to state queue.
+6. `FloatShell` adjusts hit-test regions via `setHitRegions` and Framer Motion renders transition in `FloatPill` or `SplitBubble`.
+
+### Secondary Flow (User Input to OS)
+
+1. User clicks toggle or adjusts slider in `ControlCenter.tsx` or `MediaWidgetSurface.tsx`.
+2. Component invokes PAL method (e.g. `changeVolume(delta)` or `mediaPlayPause()`).
+3. PAL calls Tauri IPC `invoke("change_volume", ...)`.
+4. Rust command handler in `volume.rs` or `media.rs` performs Win32 API call.
+5. Native state updates and echoes back confirmation event.
 
 ## Key Abstractions
 
-**Activity (`src/activities/types.ts`):**
-- Purpose: Represents any item capable of displaying in the notch/pill or split bubble.
-- Pattern: Discriminated union with `kind`, `id`, and numeric `priority`.
-- Examples: `NotificationActivity`, `MediaActivity`, `VolumeActivity`, `TimerActivity`.
+**Activity:**
+- Purpose: Unified discriminated union representing any item that can appear in the dynamic island.
+- Examples: `NotificationActivity`, `MediaActivity`, `VolumeActivity`, `TimerActivity`, `PrivacyActivity`.
+- Pattern: Defined in `src/activities/types.ts` with explicit priority ordering.
 
-**Platform Abstraction API (`src/platform/index.ts`):**
-- Purpose: Single gateway for UI to communicate with desktop OS capabilities.
-- Examples: `subscribeToMultiSessionState()`, `setHitRegions()`, `setBackdrop()`, `changeVolume()`.
+**HitRect & BackdropShape:**
+- Purpose: Geometric coordinates sent from React DOM to Rust to align the native click-through mask and DWM glass backdrop.
+- Examples: `src/platform/index.ts`, `src-tauri/src/window.rs`, `src-tauri/src/backdrop.rs`.
 
-**Shape Engine (`src/island/shape.ts`):**
-- Purpose: Vector path math calculating smooth continuous curvature (`islandPath()`).
-- Supports docked notch ears vs. floating capsule pill.
+**islandPath:**
+- Purpose: Continuous curvature vector path with Apple-style corner smoothing (0.6) and docked notch concave ears.
+- Examples: `src/island/shape.ts`.
 
 ## Entry Points
 
-**Frontend Webview:**
+**Frontend Entry Point:**
 - Location: `src/main.tsx` & `src/App.tsx`
 - Triggers: Spawned by Tauri WebView2 runtime on startup.
-- Responsibilities: Applies saved settings to DOM and Native, mounts `<FloatShell />`.
+- Responsibilities: Loads user settings, establishes unhandled exception handlers, applies theme styles to DOM, mounts `<FloatShell />`.
 
-**Backend Native:**
+**Native Process Entry Point:**
 - Location: `src-tauri/src/main.rs` & `src-tauri/src/lib.rs`
-- Triggers: OS process launch.
-- Responsibilities: Registers Tauri plugins, setups window monitor and background threads, exposes `generate_handler!` IPC commands.
+- Triggers: Windows executable launch.
+- Responsibilities: Single-instance lock, tray icon setup, worker thread initialization, IPC command registration.
 
 ## Architectural Constraints
 
-- **Single-Instance Enforcement:** Managed via `tauri_plugin_single_instance` in `src-tauri/src/lib.rs`. Secondary launches send an IPC command to open the island rather than creating duplicate processes.
-- **Window Hit Regions:** Window cannot be resized dynamically without graphical glitches on Windows DWM; instead, the window remains 720×400px and transparency click-through is dynamically enabled/disabled via `set_ignore_cursor_events`.
-- **Threading Model:** Rust backend offloads blocking WinRT and COM calls (WiFi scans, Bluetooth device enumerations, WMI brightness queries) to dedicated background worker threads (`std::thread::spawn` or `tokio`) so the Tauri IPC message loop is never blocked.
-- **No Global Mutable State in Frontend:** UI relies on reactive React state and `useSyncExternalStore` for external stores (`tasksStore.ts`, `timerStore.ts`).
+- **Fixed Window Size:** The window is fixed at 720×400 logical pixels. Dynamic window resizing causes severe graphical glitches and stutter in Windows DWM; transparency click-through via `set_ignore_cursor_events` is used instead.
+- **Worker Threading:** Never execute blocking COM, WMI, or network requests on the main Tauri event loop thread. All such calls run in `std::thread::spawn` or Tokio tasks.
+- **Strict Typing:** No `any` types; all IPC payloads are mirrored between Rust structs (`serde::Serialize`) and TypeScript interfaces.
+
+## Anti-Patterns
+
+### Direct Native API Imports in React Components
+
+**What happens:** Importing from `@tauri-apps/api` directly inside UI components.
+**Why it's wrong:** Breaks testability, hinders mock execution in browser dev mode, and duplicates error handling.
+**Do this instead:** Import exclusively through `src/platform/index.ts`.
+
+### Blocking the Hit-Test Loop
+
+**What happens:** Performing expensive DOM measurements or complex calculations during mouse tracking.
+**Why it's wrong:** Causes cursor stutter and delays click-through transitions.
+**Do this instead:** Debounce bounds calculations or calculate them during mode settlements.
 
 ## Error Handling
 
-**Strategy:**
-- Frontend logs and errors are forwarded to Rust stdout via `log_from_js` in development (`src/main.tsx`).
-- Native errors return `Result<T, String>` across Tauri IPC handlers or fail safely with fallback defaults (e.g. failing to read WMI brightness falls back silently).
-- Unhandled rejections and window errors are intercepted at root in `src/main.tsx`.
+**Strategy:** Fail-safe defaults with zero crashing.
+
+**Patterns:**
+- PAL methods catch IPC failures and return null or fallback values.
+- Rust commands return `Result<T, String>` or default values; unhandled panics are prevented through defensive checks.
+- Unhandled JavaScript exceptions and promise rejections are caught at the root in `src/main.tsx`.
+
+## Cross-Cutting Concerns
+
+**Logging:**
+- In development, `console.log` is forwarded over IPC to Rust stdout via `log_from_js`.
+- In release, `dlog!` macro strips debug output.
+
+**Security & Privacy:**
+- No telemetry or external cloud tracking.
+- Calendar URLs and credentials remain strictly in local storage.
 
 ---
 
-*Architecture analysis: 2026-10-26*
+*Architecture analysis: 2026-10-30*

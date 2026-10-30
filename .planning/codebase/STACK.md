@@ -1,10 +1,10 @@
 ---
-last_mapped_commit: 7e8c63329089a1fd40f6906071099b7166d784fe
-last_mapped_at: 2026-10-26
+last_mapped_commit: b0aa3e18784a67a4925e2a1ba9995da723742ca0
+last_mapped_at: 2026-10-30
 ---
 # Technology Stack
 
-**Analysis Date:** 2026-10-26
+**Analysis Date:** 2026-10-30
 
 ## Languages
 
@@ -32,9 +32,9 @@ last_mapped_at: 2026-10-26
 **Core:**
 - React 19 (`react@^19.1.0`, `react-dom@^19.1.0`) - Component hierarchy, hooks, state lifecycle, DOM rendering
 - Tauri v2 (`@tauri-apps/api@^2.12.2`, `tauri = "2"`) - Desktop application wrapper, IPC bridge, window management, system tray, single instance enforcement
-
-**Animation & Icons:**
 - Framer Motion 13 (`framer-motion@^13.1.0`) - Spring physics, layout morphing, fluid expand/collapse transitions, `LayoutGroup` animations
+
+**UI / Styling:**
 - Lucide React (`lucide-react@^1.55.0`) - Consistent system icon set across panels, controls, and navigation tabs
 - Fontsource Inter Variable (`@fontsource-variable/inter@^5.3.0`) - Modern variable typography system
 
@@ -45,21 +45,22 @@ last_mapped_at: 2026-10-26
 
 ## Key Dependencies
 
-**Critical Frontend:**
+**Critical:**
 - `@tauri-apps/api` (`^2.12.2`) - Core IPC invocation (`invoke`), webview listeners (`listen`), window control in `src/platform/index.ts`
 - `@crabnebula/tauri-plugin-drag` (`^2.1.0`) - Native window and file drag start handling in `src/platform/index.ts` and `src/components/float/Shelf.tsx`
 - `framer-motion` (`^13.1.0`) - Drives notch squish physics, activity split bubble morphing, and surface transitions
-
-**Critical Backend (Rust):**
 - `windows` (`0.48`) - Direct Win32 & WinRT API bindings in `src-tauri/src/window.rs`, `src-tauri/src/backdrop.rs`, `src-tauri/src/notifications.rs`, `src-tauri/src/connectivity.rs`, `src-tauri/src/sysmon.rs`
 - `win-gsmtc` (`0.1.0`) - Windows Global System Media Transport Controls integration for Spotify, YouTube, Apple Music in `src-tauri/src/media.rs`
 - `cpal` (`0.15`) - Low-latency WASAPI loopback audio capture from the default playback device for live equalizer in `src-tauri/src/visualizer.rs`
 - `tokio` (`1.0`) - Asynchronous runtime for background synchronization and task timers in `src-tauri/src/media.rs`
+
+**Infrastructure & Utilities:**
 - `ureq` (`3.0`) - Lightweight HTTP client for weather (`src-tauri/src/weather.rs`), lyrics (`src-tauri/src/lyrics.rs`), and calendar feed fetching (`src-tauri/src/calendar.rs`)
 - `wmi` (`0.18`) - Windows Management Instrumentation for display brightness queries and adjustments in `src-tauri/src/brightness.rs`
 - `sysinfo` (`0.39`) - System resource metrics (CPU, RAM) in `src-tauri/src/sysstats.rs`
 - `rrule` (`0.14`) & `chrono` (`0.4`) - iCalendar RRULE recurrence parsing in `src-tauri/src/calendar.rs`
 - `serde` (`1.0`) & `serde_json` (`1.0`) - Data serialization across Tauri IPC boundary
+- `base64` (`0.23.1`) & `png` (`0.17`) - Clipboard and album artwork image encoding
 
 ## Configuration
 
@@ -89,4 +90,4 @@ last_mapped_at: 2026-10-26
 
 ---
 
-*Stack analysis: 2026-10-26*
+*Stack analysis: 2026-10-30*

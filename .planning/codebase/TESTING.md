@@ -1,114 +1,85 @@
 ---
-last_mapped_commit: 7e8c63329089a1fd40f6906071099b7166d784fe
-last_mapped_at: 2026-10-26
+last_mapped_commit: b0aa3e18784a67a4925e2a1ba9995da723742ca0
+last_mapped_at: 2026-10-30
 ---
 # Testing Patterns
 
-**Analysis Date:** 2026-10-26
+**Analysis Date:** 2026-10-30
 
 ## Test Framework
 
-**Current Status:**
-- **No automated test runner is currently installed or configured** in either the frontend (`package.json`) or backend (`src-tauri/Cargo.toml`).
-- Verification is currently conducted via TypeScript type checking (`tsc`) and manual desktop testing (`tauri dev`).
+**Runner & Tooling:**
+- Frontend: TypeScript type-checking via `tsc --noEmit` / `npm run build`. No automated browser runner (Jest/Vitest) is currently configured in `package.json`.
+- Backend: Rust standard testing harness (`cargo test`).
+- Native Integration: Tested interactively via manual testing in Tauri runtime and debug logging.
 
 **Run Commands:**
 
 ```bash
-
-# Type check and build bundle
-
-npm run build          # Runs "tsc && vite build"
-
-# Rust backend compilation check
-
-cd src-tauri && cargo check
-
-# Run app in dev mode for manual testing
-
-npm run tauri dev
+npm run build          # Typecheck TypeScript and bundle frontend with Vite
+cargo check            # Fast syntax & type check for native Rust backend
+cargo test             # Run Rust internal unit tests
+npm run tauri dev      # Launch live interactive application in development mode
 ```
 
-## Recommended Test Framework Setup
-
-**Frontend Runner (Proposed):**
-- Framework: Vitest (`vitest`) + React Testing Library (`@testing-library/react`)
-- Mocking: `vitest` built-in mocking for `@tauri-apps/api`
-- Proposed Config: `vitest.config.ts`
-
-**Backend Runner (Proposed):**
-- Standard Rust test harness (`cargo test`) for pure logic modules (e.g. `calendar.rs`, `rrule` parsing, `shape` calculations).
-
-## Test File Organization (Proposed)
+## Test File Organization
 
 **Location:**
-- Co-located next to target implementation files (`src/activities/__tests__/` or `src/island/shape.test.ts`).
+- Unit tests in Rust are placed inline in their respective modules or in a dedicated `tests/` directory:
+  - Example: `src-tauri/src/calendar.rs` contains module-level tests for RRULE expansion and iCal parsing.
 
 **Naming:**
-- `*.test.ts`, `*.test.tsx`, `*.spec.ts`
+- Rust test modules: `#[cfg(test)] mod tests { ... }`.
+- Test functions: `#[test] fn test_something() { ... }`.
 
-## Mocking Requirements for Platform Abstraction
+## Test Structure
 
-Because FLOAT relies on native desktop IPC, automated testing of React components requires mocking the Platform Abstraction Layer (`src/platform/index.ts`).
+**Rust Test Pattern:**
 
-**Mocking Pattern Example:**
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-```typescript
-import { vi } from "vitest";
-
-// Mocking platform calls for UI testing
-vi.mock("../platform", () => ({
-  setHitRegions: vi.fn(),
-  startWindowDrag: vi.fn(),
-  getIslandAttached: vi.fn().mockResolvedValue(true),
-  subscribeToIslandHover: vi.fn((cb) => {
-    cb(false);
-    return () => {};
-  }),
-  subscribeToMultiSessionState: vi.fn(() => () => {}),
-  subscribeToNotificationPresence: vi.fn(() => () => {}),
-  subscribeToVolumeChanged: vi.fn(() => () => {}),
-  subscribeToPrivacy: vi.fn(() => () => {}),
-  subscribeToPower: vi.fn(() => () => {}),
-}));
+    #[test]
+    fn test_calendar_rrule_parsing() {
+        let ics_data = "BEGIN:VCALENDAR...";
+        let events = parse_ics(ics_data).expect("Should parse");
+        assert!(!events.is_empty());
+    }
+}
 ```
 
-**What to Mock:**
-- Tauri IPC handlers (`invoke`, `listen`).
-- Windows DWM compositor interfaces and WinRT objects.
-- WASAPI audio streams (`cpal`).
-- Browser `localStorage` during component isolation tests.
+## Mocking & Isolation
 
-**What NOT to Mock:**
-- Mathematical geometry logic in `src/island/shape.ts`.
-- Pure business logic and priority queues in `src/activities/useActivities.ts` and `src/activities/types.ts`.
-- Local task store operations in `src/activities/tasksStore.ts`.
-- Settings parsing and validation rules in `src/services/settings.ts`.
+**Frontend Isolation:**
+- `src/platform/index.ts` gracefully degrades when invoked outside Tauri:
+  ```typescript
+  export async function getIslandAttached(): Promise<boolean> {
+    try {
+      return await invoke<boolean>("get_island_attached");
+    } catch {
+      return true; // Safe fallback for headless or browser preview
+    }
+  }
+  ```
+- This allows individual React components to be tested or previewed in standard Vite dev servers without crashing on missing native bindings.
 
 ## Coverage
 
 **Requirements:**
-- None enforced currently.
-- Recommended targets once tests are introduced:
-  - 85%+ coverage on `src/activities/` (priority scheduling, timer calculations).
-  - 90%+ coverage on `src/island/shape.ts` (path generation, corner smoothing).
-  - 80%+ coverage on `src/services/settings.ts` (storage serialization, schema migration).
+- No formal coverage threshold enforced at this stage.
+- Compilation and strict TypeScript validation (`tsc`) must pass with 0 errors before committing.
 
-## Test Types Needed
+## Test Types
 
-**Unit Tests:**
-- Activity Priority sorting in `src/activities/useActivities.ts` (verifying Volume HUD preempts notifications, notifications preempt media).
-- Timer arithmetic and drift prevention in `src/activities/timerStore.ts`.
-- Apple corner smoothing and SVG path string generation in `src/island/shape.ts`.
-- Settings default merging and version upgrades in `src/services/settings.ts`.
+**Static Verification:**
+- TypeScript strict checking: Ensures interfaces match IPC contracts between frontend and backend.
+- Rust borrow checker and type verification: Ensures thread safety across background OS monitors.
 
-**Integration Tests:**
-- Component interactions between `FloatPill.tsx`, `SplitBubble.tsx`, and `FloatSurface.tsx`.
-- Tab navigation and state retention in `FloatSurface.tsx`.
-
-**E2E Tests:**
-- Desktop automated testing with Playwright or WebDriver for Tauri applications.
+**Interactive Verification:**
+- User Acceptance Testing (UAT) performed interactively against live Windows DWM, GSMTC media sessions, and system notifications.
 
 ---
 
-*Testing analysis: 2026-10-26*
+*Testing analysis: 2026-10-30*

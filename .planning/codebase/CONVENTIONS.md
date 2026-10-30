@@ -1,78 +1,72 @@
 ---
-last_mapped_commit: 7e8c63329089a1fd40f6906071099b7166d784fe
-last_mapped_at: 2026-10-26
+last_mapped_commit: b0aa3e18784a67a4925e2a1ba9995da723742ca0
+last_mapped_at: 2026-10-30
 ---
 # Coding Conventions
 
-**Analysis Date:** 2026-10-26
+**Analysis Date:** 2026-10-30
 
 ## Naming Patterns
 
 **Files:**
-- React Components: PascalCase matching the exported component (`src/components/float/FloatShell.tsx`, `src/components/float/HomeView.tsx`).
-- Stylesheets: Component-scoped CSS files mirroring component name (`src/components/float/FloatShell.css`, `src/components/float/ControlCenter.css`).
-- Hooks & Store Utilities: camelCase prefixed with `use` or descriptive noun (`src/activities/useActivities.ts`, `src/activities/tasksStore.ts`, `src/components/float/useArtColor.ts`).
-- Rust Modules: snake_case (`src-tauri/src/window.rs`, `src-tauri/src/sysmon.rs`, `src-tauri/src/appicon.rs`).
+- React Components: PascalCase matching the component name (e.g. `src/components/float/FloatShell.tsx`, `ControlCenter.tsx`).
+- Stylesheets: Component-scoped `.css` files mirroring component names (e.g. `FloatShell.css`, `ControlCenter.css`).
+- Hooks & Store Utilities: camelCase prefixed with `use` or descriptive noun (e.g. `src/activities/useActivities.ts`, `tasksStore.ts`, `src/components/float/useArtColor.ts`).
+- Rust Modules: snake_case (e.g. `src-tauri/src/window.rs`, `backdrop.rs`, `connectivity.rs`).
 
 **Functions:**
-- React Component Functions: PascalCase (`export const FloatSurface: React.FC<FloatSurfaceProps> = ...`).
-- Helper / Utility Functions: camelCase (`applySettingsToDOM()`, `islandPath()`, `startWindowDrag()`).
-- Rust Functions: snake_case (`pub fn set_hit_regions(...)`, `fn query_system_state()`).
+- React Component Functions: PascalCase (e.g. `export const FloatSurface: React.FC<FloatSurfaceProps> = ...`).
+- Helper & Utility Functions: camelCase (e.g. `applySettingsToDOM()`, `islandPath()`, `startWindowDrag()`).
+- Rust Functions: snake_case (e.g. `pub fn set_hit_regions(...)`, `fn query_system_state()`).
 
-**Variables & Constants:**
-- State & Variables: camelCase (`activeTab`, `isHovered`, `buttonDown`).
-- Constants & Timing Thresholds: UPPER_SNAKE_CASE (`WINDOW_WIDTH`, `MORPH_SETTLE_MS`, `NOTIFICATION_DWELL_MS`, `POLL_EVERY`).
+**Variables & State:**
+- State variables: camelCase (e.g. `activeTab`, `isHovered`, `buttonDown`).
+- Constants & Thresholds: UPPER_SNAKE_CASE (e.g. `WINDOW_WIDTH`, `MORPH_SETTLE_MS`, `NOTIFICATION_DWELL_MS`, `POLL_EVERY`).
 
 **Types & Interfaces:**
-- TypeScript: PascalCase (`FloatSettings`, `HitRect`, `ActivityPriority`, `TimerState`).
-- Rust Structs & Enums: PascalCase (`MediaSession`, `NotificationItem`, `WindowState`).
+- TypeScript: PascalCase (e.g. `FloatSettings`, `HitRect`, `ActivityPriority`, `TimerState`).
+- Rust Structs & Enums: PascalCase (e.g. `MediaSession`, `NotificationItem`, `WindowState`).
 
 ## Code Style
 
-**TypeScript & Compiler Configuration:**
-- Strict typing enforced via `tsconfig.json`:
-  - `"strict": true`
-  - `"noUnusedLocals": true`
-  - `"noUnusedParameters": true`
-  - `"noFallthroughCasesInSwitch": true`
-  - `"isolatedModules": true`
-- Avoid `any` - types are comprehensively defined in `src/activities/types.ts` and `src/platform/index.ts`.
-
-**Styling & Design System:**
-- Vanilla CSS with CSS custom variables defined in `src/index.css` (`--bg-primary`, `--accent`, `--glass-blur`, etc.).
-- Glassmorphism effects achieved using CSS backdrop-filter (`backdrop-filter: blur(20px)`) combined with the native compositor glass HWND (`src-tauri/src/backdrop.rs`).
-- Component stylesheets use BEM-like class prefixes (e.g. `.cc-toggle`, `.float-pill`, `.surface-tab`).
-
-**Animation Conventions:**
-- Use Framer Motion springs and transitions with standardized cubic-bezier curves:
-  - Spring physics: `tabTransition = { duration: 0.18, ease: [0.16, 1, 0.3, 1] }`
-  - SVG layout transitions wrapped in `<LayoutGroup id="...">` for shared element continuity.
+**Formatting & Strict Typing:**
+- TypeScript strict mode enforced via `tsconfig.json` (`"strict": true`, `"noUnusedLocals": true`, `"noUnusedParameters": true`).
+- Avoid `any` - data models and IPC payloads are strictly typed in `src/activities/types.ts` and `src/platform/index.ts`.
+- Pure CSS with custom CSS properties defined in `src/index.css` (`--bg-primary`, `--accent`, `--glass-blur`, `--island-bg`).
+- Component stylesheets use BEM-like class naming prefixes (e.g. `.cc-toggle`, `.float-pill`, `.surface-tab`).
+- Framer Motion transitions use standardized cubic-bezier easing or spring dynamics:
+  - Spring: `{ type: "spring", stiffness: 400, damping: 30 }`
+  - Morph settle time: ~220ms.
 
 ## Import Organization
 
 **Order:**
-1. React core and hooks (`import React, { useState, useEffect, useRef } from "react";`)
-2. External animation & UI libraries (`import { motion, AnimatePresence } from "framer-motion";`, `import { Bell, Play } from "lucide-react";`)
-3. Internal child components (`import { FloatPill } from "./FloatPill";`)
-4. Platform and abstraction layer (`import { setHitRegions, changeVolume } from "../../platform";`)
-5. Services and stores (`import { loadSettings, FloatSettings } from "../../services/settings";`)
-6. Types (`import { Activity, ActivityPriority } from "../../activities/types";`)
-7. Stylesheet imports (`import "./FloatShell.css";`)
+1. External core libraries (React, Framer Motion, Lucide icons)
+2. Platform abstraction functions (`src/platform/index.ts`)
+3. Internal activities & stores (`src/activities/...`)
+4. Child components and helper utilities (`./FloatPill`, `./shape`)
+5. Component stylesheets (`./FloatShell.css`)
 
-**Path Aliases:**
-- Standard relative imports are used across all files (e.g., `../../platform`, `./FloatOrb`).
+**Path Resolution:**
+- Standard relative paths are used across the codebase (`../../platform`, `./FloatOrb`).
 
 ## Error Handling
 
 **Frontend (React/TypeScript):**
-- Wrap all Tauri IPC calls (`invoke`) in `try / catch` blocks to gracefully handle execution outside the desktop container (e.g., during web browser UI tests).
-- Local storage operations (`localStorage.getItem`, `localStorage.setItem`) are wrapped in `try / catch` to tolerate quota errors or privacy mode restrictions (`src/services/settings.ts`, `src/activities/tasksStore.ts`).
-- Root-level unhandled exception and promise rejection interceptors are established in `src/main.tsx`.
+- Wrap all Tauri IPC calls (`invoke`) in `try / catch` blocks to gracefully tolerate execution outside the desktop container (e.g. browser dev mode).
+- LocalStorage operations (`localStorage.getItem`, `localStorage.setItem`) are wrapped in `try / catch` to tolerate quota or privacy restrictions (`src/services/settings.ts`, `src/activities/tasksStore.ts`).
+- Root unhandled error and promise rejection listeners are established in `src/main.tsx`.
 
 **Backend (Rust):**
-- Commands return `Result<T, String>` or fail-safe default values rather than panicking.
+- Tauri commands return `Result<T, String>` or fail-safe default values rather than panicking.
 - Defensive pointer and Win32 handle conversions using `as_bool()`, `ok()`, and `unwrap_or_default()`.
-- Production logging uses the zero-cost `dlog!` macro:
+- Thread boundary safety: background worker threads catch COM / WinRT errors and avoid aborting process execution.
+
+## Logging
+
+**Framework:**
+- In development (`import.meta.env.DEV`), `console.log` and `console.error` are intercepted in `src/main.tsx` and forwarded over IPC to the terminal stdout via `invoke("log_from_js", { msg })`.
+- In Rust, production logging uses the zero-cost `dlog!` macro:
   ```rust
   macro_rules! dlog {
       ($($arg:tt)*) => {
@@ -83,18 +77,12 @@ last_mapped_at: 2026-10-26
   }
   ```
 
-## Logging
-
-**Frontend to Backend Bridge:**
-- In development (`import.meta.env.DEV`), `console.log` and `console.error` are intercepted in `src/main.tsx` and forwarded over IPC to the terminal stdout via `invoke("log_from_js", { msg })`.
-- In release builds, this IPC forwarding is stripped to avoid inter-process communication overhead.
-
 ## Comments
 
 **When to Comment:**
-- Architecture and cross-language contracts (e.g., explaining why window width must match between `FloatShell.tsx` and `window.rs`).
-- Native Win32 / WinRT quirks (e.g., documenting why `IShellItemImageFactory` is used over older shell icon APIs).
-- Explaining physical measurements, timing constants, and Apple continuous corner math in `src/island/shape.ts`.
+- Architecture and cross-language contracts (e.g. explaining why window dimensions must match between `FloatShell.tsx` and `window.rs`).
+- Native Win32 / WinRT quirks (e.g. documenting COM threading models or continuous corner math in `src/island/shape.ts`).
+- Preserve all existing documentation and architectural comments.
 
 ## Module Design
 
@@ -106,4 +94,4 @@ last_mapped_at: 2026-10-26
 
 ---
 
-*Convention analysis: 2026-10-26*
+*Convention analysis: 2026-10-30*
