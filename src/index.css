@@ -136,6 +136,10 @@ body {
   justify-content: center;
   /* The notch hangs flush from the top edge (FloatShell offsets the orb). */
   padding-top: 0;
+  transform: scale(0.85);
+  transform-origin: top center;
+  width: 100%;
+  height: 100%;
 }
 
 /* ---- Scrollbars ----
