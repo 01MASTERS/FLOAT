@@ -2,17 +2,17 @@
 
 ## Project
 
-**FLOAT - Calendar & Agenda Expansion**
+**FLOAT - Calendar, Tasks & Sizing Expansion**
 
-FLOAT is a lightweight MacBook-style notch and Dynamic Island for Windows built with React 19 and Tauri v2 (Rust). It provides glanceable media controls, audio visualization, Windows notifications, volume/system HUDs, and everyday desktop productivity tools. This milestone expands FLOAT's calendar and daily briefing into a full-featured multi-feed agenda, displaying upcoming meetings, all-day events, birthdays, and tasks.
+FLOAT is a lightweight MacBook-style notch and Dynamic Island for Windows built with React 19 and Tauri v2 (Rust). It provides glanceable media controls, audio visualization, Windows notifications, volume/system HUDs, and everyday desktop productivity tools. This milestone expands FLOAT into a comprehensive daily command center by supporting all Google Calendar events (manual events, all-day birthdays, and tasks) in both a dedicated Calendar tab and the compact Home line, adding double-click task editing, birthday/event notch alerts, and scaling the overall interface down to 85%.
 
-**Core Value:** Calm, glanceable desktop awareness that seamlessly surfaces your next meeting, birthday, or task without cluttering your workflow.
+**Core Value:** Calm, glanceable desktop awareness that seamlessly surfaces your closest meeting, birthday, or task without cluttering your workflow.
 
 ### Constraints
 
 - **Performance**: Event parsing must remain asynchronous in Rust background tasks, cached, and never block UI rendering or hit-testing.
-- **Privacy & Security**: Calendar URLs and event data stay strictly local in memory / user configuration on the PC.
-- **Zero Heavy Dependencies**: Keep the bundle lightweight; avoid heavy monolithic calendar libraries when lightweight date-fns or native Date suffices.
+- **Privacy & Security**: Calendar URLs and event data stay strictly local on the user's PC; no credentials or telemetry are stored on external servers.
+- **Sizing & Composition**: 85% scale must maintain pixel-perfect alignment with native Windows DWM glass backdrop and click-through hit regions.
 
 <!-- GSD:project-end -->
 
