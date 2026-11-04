@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, X } from "lucide-react";
+import { Check, CheckCircle2, X } from "lucide-react";
 import { Task, taskList, useTasks } from "../../activities/tasksStore";
 import "./TasksView.css";
 
@@ -69,11 +69,26 @@ export const TasksView: React.FC = () => {
     <div className="view tasks-view">
       <div className="view-header">
         <span className="view-title">Tasks</span>
-        <span className="view-hint">{tasks.length === 0 ? "" : open.length === 0 ? "All done" : `${open.length} to do`}</span>
+        <span className="view-hint">
+          {tasks.length === 0 ? "" : open.length === 0 ? "All done" : `${open.length} to do`}
+        </span>
+        {done.length > 0 && (
+          <button
+            type="button"
+            className="view-action"
+            onClick={(e) => {
+              e.stopPropagation();
+              taskList.clearDone();
+            }}
+            data-no-drag="true"
+          >
+            Clear done
+          </button>
+        )}
       </div>
 
       <form
-        className="tasks-composer"
+        className="task-add"
         onSubmit={(e) => {
           e.preventDefault();
           const clean = draft.trim();
@@ -81,104 +96,131 @@ export const TasksView: React.FC = () => {
           taskList.add(clean);
           setDraft("");
         }}
+        onClick={(e) => e.stopPropagation()}
+        data-no-drag="true"
       >
+        <span className="task-check ghost" />
         <input
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Add a task… (Enter)"
           maxLength={120}
+          data-no-drag="true"
+          spellCheck={false}
         />
       </form>
 
-      <div className="tasks-list scroll-area">
-        <AnimatePresence initial={false}>
-          {open.map((t) => {
-            const isEditing = editingTaskId === t.id;
-            const isShaking = shakeTaskId === t.id;
+      {tasks.length === 0 ? (
+        <div className="view-empty tasks-empty">
+          <div className="tasks-empty-icon">
+            <CheckCircle2 size={24} strokeWidth={1.8} />
+          </div>
+          <div className="tasks-empty-title">No tasks yet</div>
+          <div className="tasks-empty-desc">Type above to keep a thought for later.</div>
+        </div>
+      ) : (
+        <div className="task-list scroll-area">
+          <AnimatePresence initial={false}>
+            {open.map((t) => {
+              const isEditing = editingTaskId === t.id;
+              const isShaking = shakeTaskId === t.id;
 
-            return (
-              <motion.div
-                key={t.id}
-                className={`task-row ${isShaking ? "task-shake" : ""}`}
-                layout
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-              >
-                <button
-                  type="button"
-                  className="task-check"
-                  onClick={() => taskList.toggle(t.id)}
-                  aria-label="Mark done"
-                />
-                {isEditing ? (
-                  <input
-                    ref={editInputRef}
-                    className="task-inline-edit"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    onBlur={() => commitEdit(t)}
-                    onKeyDown={(e) => handleEditKeyDown(e, t)}
-                    maxLength={200}
+              return (
+                <motion.div
+                  key={t.id}
+                  className={`task-row ${isShaking ? "task-shake" : ""}`}
+                  layout
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
+                >
+                  <button
+                    type="button"
+                    className="task-check"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      taskList.toggle(t.id);
+                    }}
+                    data-no-drag="true"
+                    aria-label="Mark done"
                   />
-                ) : (
-                  <span
-                    className="task-title"
-                    onDoubleClick={() => startEdit(t)}
-                    title="Double-click to edit"
+                  {isEditing ? (
+                    <input
+                      ref={editInputRef}
+                      className="task-inline-edit"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      onBlur={() => commitEdit(t)}
+                      onKeyDown={(e) => handleEditKeyDown(e, t)}
+                      maxLength={200}
+                      data-no-drag="true"
+                    />
+                  ) : (
+                    <span
+                      className="task-title"
+                      onDoubleClick={() => startEdit(t)}
+                      title="Double-click to edit"
+                    >
+                      {t.title}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="task-delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      taskList.remove(t.id);
+                    }}
+                    data-no-drag="true"
+                    aria-label="Delete task"
                   >
-                    {t.title}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className="task-delete"
-                  onClick={() => taskList.remove(t.id)}
-                  aria-label="Delete task"
-                >
-                  <X size={12} />
-                </button>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+                    <X size={12} strokeWidth={2.4} />
+                  </button>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
 
-        {done.length > 0 && (
-          <div className="tasks-done-group">
-            <span className="tasks-done-header">Completed</span>
-            {done.map((t) => (
-              <div key={t.id} className="task-row is-done">
-                <button
-                  type="button"
-                  className="task-check checked"
-                  onClick={() => taskList.toggle(t.id)}
-                  aria-label="Mark undone"
-                >
-                  <Check size={10} strokeWidth={3} />
-                </button>
-                <span className="task-title">{t.title}</span>
-                <button
-                  type="button"
-                  className="task-delete"
-                  onClick={() => taskList.remove(t.id)}
-                  aria-label="Delete task"
-                >
-                  <X size={12} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {tasks.length === 0 && (
-          <div className="tasks-empty">
-            <p>No tasks yet.</p>
-            <span>Type above to keep a thought for later.</span>
-          </div>
-        )}
-      </div>
+          {done.length > 0 && (
+            <div className="tasks-done-group">
+              <span className="tasks-done-header">Completed</span>
+              {done.map((t) => (
+                <div key={t.id} className="task-row is-done">
+                  <button
+                    type="button"
+                    className="task-check checked"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      taskList.toggle(t.id);
+                    }}
+                    data-no-drag="true"
+                    aria-label="Mark undone"
+                  >
+                    <Check size={10} strokeWidth={3} />
+                  </button>
+                  <span className="task-title">{t.title}</span>
+                  <button
+                    type="button"
+                    className="task-delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      taskList.remove(t.id);
+                    }}
+                    data-no-drag="true"
+                    aria-label="Delete task"
+                  >
+                    <X size={12} strokeWidth={2.4} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
+
+export default TasksView;
