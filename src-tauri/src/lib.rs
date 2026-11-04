@@ -95,6 +95,7 @@ pub fn run() {
             focus::get_focus_presence,
             notifications::remove_notification,
             notifications::clear_all_notifications,
+            notifications::open_notification_app,
             notifications::get_active_notifications,
             appicon::get_app_icon
         ])

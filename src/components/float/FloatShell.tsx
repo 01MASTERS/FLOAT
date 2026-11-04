@@ -15,6 +15,7 @@ import {
   NotificationItem,
   removeNotification,
   clearAllNotifications,
+  openNotificationApp,
   getActiveNotifications,
   subscribeToFocusPresence,
   getFocusPresence,
@@ -396,6 +397,13 @@ const FloatShell: React.FC = () => {
   }, [clearIdleToOrbTimer, transitionTo]);
 
   const handleDismissNotification = useCallback(() => {
+    if (primaryRef.current?.kind === "notification") {
+      const notifId = primaryRef.current.notificationId;
+      if (typeof notifId === "number") {
+        removeNotification(notifId);
+        setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+      }
+    }
     dismissKind("notification");
     setNotificationPreviewOpen(false);
   }, [dismissKind]);
@@ -427,6 +435,18 @@ const FloatShell: React.FC = () => {
 
     if (isDraggingRef.current) return;
     clearIdleToOrbTimer();
+
+    if (primaryRef.current?.kind === "notification") {
+      clearClickTimer();
+      const notif = primaryRef.current;
+      openNotificationApp(notif.appId, notif.appName);
+      if (typeof notif.notificationId === "number") {
+        removeNotification(notif.notificationId);
+        setNotifications((prev) => prev.filter((n) => n.id !== notif.notificationId));
+      }
+      dismissKind("notification");
+      return;
+    }
 
     if (primaryRef.current?.kind === "calendarAlert") {
       clearClickTimer();
@@ -734,6 +754,7 @@ const FloatShell: React.FC = () => {
               {
                 kind: "notification",
                 id: `notification:${payload.item?.id ?? Date.now()}`,
+                notificationId: payload.item?.id,
                 priority: ActivityPriority.notification,
                 appId: payload.item?.appId,
                 appName: payload.appName,

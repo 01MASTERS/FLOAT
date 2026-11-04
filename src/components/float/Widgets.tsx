@@ -78,10 +78,11 @@ export const WeatherChip: React.FC = () => {
   useEffect(() => {
     setWeather(null);
     setError(null);
-    if (!weatherEnabled || !weatherCity.trim()) return;
+    if (!weatherEnabled) return;
     let cancelled = false;
+    const queryCity = weatherCity.trim() || "auto";
     const load = () =>
-      getWeather(weatherCity, weatherFahrenheit)
+      getWeather(queryCity, weatherFahrenheit)
         .then((w) => !cancelled && (setWeather(w), setError(null)))
         .catch((e) => !cancelled && setError(String(e)));
     load();
@@ -96,7 +97,7 @@ export const WeatherChip: React.FC = () => {
   if (!weather) {
     return (
       <div className="wx-chip muted" title={error ?? undefined}>
-        {error ? "Weather unavailable" : weatherCity.trim() ? "…" : "Set a city"}
+        {error ? "Weather unavailable" : "Detecting weather…"}
       </div>
     );
   }

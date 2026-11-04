@@ -648,10 +648,21 @@ export const FloatSettingsView: React.FC<FloatSettingsViewProps> = ({ onClose })
             <div className="float-setting-field-row">
               <CommitInput
                 value={settings.weatherCity}
-                placeholder="City, e.g. Bengaluru"
+                placeholder="Auto-detect location (or enter city)"
                 ariaLabel="Weather city"
                 onCommit={(weatherCity) => update({ weatherCity })}
               />
+              {settings.weatherCity.trim() && (
+                <button
+                  type="button"
+                  className="float-setting-unit-btn"
+                  onClick={() => update({ weatherCity: "" })}
+                  data-no-drag="true"
+                  title="Reset to auto-detect location"
+                >
+                  Auto
+                </button>
+              )}
               <button
                 type="button"
                 className="float-setting-unit-btn"

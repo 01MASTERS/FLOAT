@@ -1,7 +1,7 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
-import { NotificationItem } from "../../platform";
+import { NotificationItem, openNotificationApp } from "../../platform";
 import { AppIcon } from "./AppIcon";
 import "./FloatNotificationsView.css";
 
@@ -59,6 +59,8 @@ export const FloatNotificationsView: React.FC<FloatNotificationsViewProps> = ({
               exit={{ opacity: 0, x: -20, height: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0 }}
               transition={{ type: "spring", stiffness: 460, damping: 36 }}
               className="notif-row"
+              onClick={() => openNotificationApp(item.appId, item.appName)}
+              title={`Open ${item.appName || "app"}`}
             >
               <AppIcon appId={item.appId} appName={item.appName} size={28} />
               <div className="notif-text">

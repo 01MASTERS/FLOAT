@@ -782,3 +782,11 @@ export async function mediaSeek(position: number, sessionId?: string): Promise<v
     console.error("[MEDIA UI ERROR] mediaSeek failed:", e);
   }
 }
+
+export async function openNotificationApp(appId?: string, appName?: string): Promise<void> {
+  try {
+    await invoke("open_notification_app", { appId, appName });
+  } catch (e) {
+    console.error("openNotificationApp failed:", e);
+  }
+}

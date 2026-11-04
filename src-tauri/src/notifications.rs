@@ -350,6 +350,28 @@ pub fn remove_notification(id: u32) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_notification_app(app_id: Option<String>, app_name: Option<String>) -> Result<(), String> {
+    dlog!("[NOTIFICATIONS] open_notification_app: appId={:?}, appName={:?}", app_id, app_name);
+    if let Some(ref aumid) = app_id {
+        let clean = aumid.trim();
+        if !clean.is_empty() {
+            let target = format!("shell:AppsFolder\\{}", clean);
+            if std::process::Command::new("explorer.exe").arg(&target).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+    }
+    if let Some(ref name) = app_name {
+        let clean = name.trim();
+        if !clean.is_empty() {
+            let target = format!("shell:AppsFolder\\{}", clean);
+            let _ = std::process::Command::new("explorer.exe").arg(&target).spawn();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn clear_all_notifications() -> Result<(), String> {
     dlog!("[NOTIFICATIONS] clear_all_notifications called");
     if let Ok(listener) = UserNotificationListener::Current() {

@@ -62,26 +62,74 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
+#[derive(Deserialize)]
+struct IpApiLocation {
+    city: Option<String>,
+    lat: Option<f64>,
+    lon: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct FreeIpLocation {
+    #[serde(rename = "cityName")]
+    city_name: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+}
+
+fn auto_locate(agent: &ureq::Agent) -> Result<(String, f64, f64), String> {
+    // 1. Try ip-api.com
+    if let Ok(mut resp) = agent.get("http://ip-api.com/json").call() {
+        if let Ok(loc) = resp.body_mut().read_json::<IpApiLocation>() {
+            if let (Some(c), Some(lat), Some(lon)) = (loc.city, loc.lat, loc.lon) {
+                if !c.is_empty() {
+                    return Ok((c, lat, lon));
+                }
+            }
+        }
+    }
+
+    // 2. Fallback to freeipapi.com
+    if let Ok(mut resp) = agent.get("https://freeipapi.com/api/json").call() {
+        if let Ok(loc) = resp.body_mut().read_json::<FreeIpLocation>() {
+            if let (Some(c), Some(lat), Some(lon)) = (loc.city_name, loc.latitude, loc.longitude) {
+                if !c.is_empty() {
+                    return Ok((c, lat, lon));
+                }
+            }
+        }
+    }
+
+    Err("Could not auto-detect location".into())
+}
+
 fn fetch(city: &str, fahrenheit: bool) -> Result<Weather, String> {
     let agent = agent();
-    let geo: GeoResponse = agent
-        .get("https://geocoding-api.open-meteo.com/v1/search")
-        .query("name", city)
-        .query("count", "1")
-        .call()
-        .map_err(|e| e.to_string())?
-        .body_mut()
-        .read_json()
-        .map_err(|e| e.to_string())?;
-    let place = geo
-        .results
-        .and_then(|r| r.into_iter().next())
-        .ok_or_else(|| format!("Couldn't find \"{city}\""))?;
+    let is_auto = city.trim().is_empty() || city.trim().eq_ignore_ascii_case("auto");
+
+    let (place_name, lat, lon) = if is_auto {
+        auto_locate(&agent)?
+    } else {
+        let geo: GeoResponse = agent
+            .get("https://geocoding-api.open-meteo.com/v1/search")
+            .query("name", city)
+            .query("count", "1")
+            .call()
+            .map_err(|e| e.to_string())?
+            .body_mut()
+            .read_json()
+            .map_err(|e| e.to_string())?;
+        let place = geo
+            .results
+            .and_then(|r| r.into_iter().next())
+            .ok_or_else(|| format!("Couldn't find \"{city}\""))?;
+        (place.name, place.latitude, place.longitude)
+    };
 
     let forecast: Forecast = agent
         .get("https://api.open-meteo.com/v1/forecast")
-        .query("latitude", place.latitude.to_string())
-        .query("longitude", place.longitude.to_string())
+        .query("latitude", lat.to_string())
+        .query("longitude", lon.to_string())
         .query("current", "temperature_2m,weather_code,is_day")
         .query("daily", "temperature_2m_max,temperature_2m_min")
         .query("forecast_days", "1")
@@ -94,7 +142,7 @@ fn fetch(city: &str, fahrenheit: bool) -> Result<Weather, String> {
         .map_err(|e| e.to_string())?;
 
     Ok(Weather {
-        city: place.name,
+        city: place_name,
         temperature: forecast.current.temperature_2m,
         high: forecast.daily.as_ref().and_then(|d| d.temperature_2m_max.first().copied()),
         low: forecast.daily.as_ref().and_then(|d| d.temperature_2m_min.first().copied()),
@@ -107,16 +155,14 @@ fn fetch(city: &str, fahrenheit: bool) -> Result<Weather, String> {
 #[tauri::command]
 pub async fn get_weather(city: String, fahrenheit: bool) -> Result<Weather, String> {
     let city = city.trim().to_string();
-    if city.is_empty() {
-        return Err("No city set".into());
-    }
-    let key = format!("{}|{}", city.to_lowercase(), fahrenheit);
+    let query_city = if city.is_empty() { "auto".to_string() } else { city };
+    let key = format!("{}|{}", query_city.to_lowercase(), fahrenheit);
     if let Some((k, at, weather)) = CACHE.lock().unwrap().as_ref() {
         if *k == key && at.elapsed() < CACHE_FOR {
             return Ok(weather.clone());
         }
     }
-    let weather = tauri::async_runtime::spawn_blocking(move || fetch(&city, fahrenheit))
+    let weather = tauri::async_runtime::spawn_blocking(move || fetch(&query_city, fahrenheit))
         .await
         .map_err(|e| e.to_string())??;
     *CACHE.lock().unwrap() = Some((key, Instant::now(), weather.clone()));
