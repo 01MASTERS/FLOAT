@@ -184,6 +184,9 @@ export const FloatPill: React.FC<FloatPillProps> = ({
                 className="pill-notif-close-btn"
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (typeof notification?.notificationId === "number") {
+                    removeNotification(notification.notificationId);
+                  }
                   onDismissNotification();
                 }}
                 aria-label="Dismiss notification"

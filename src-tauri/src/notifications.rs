@@ -43,6 +43,147 @@ pub struct NotificationPresencePayload {
     pub body: Option<String>,
 }
 
+fn decode_xml_entities(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+}
+
+fn extract_launch_attribute(xml: &str) -> Option<String> {
+    // Look for launch="..." or launch='...'
+    let key = "launch=\"";
+    if let Some(pos) = xml.find(key) {
+        let rest = &xml[pos + key.len()..];
+        if let Some(end) = rest.find('"') {
+            let val = &rest[..end];
+            let decoded = decode_xml_entities(val);
+            if !decoded.trim().is_empty() {
+                return Some(decoded);
+            }
+        }
+    }
+    let key_single = "launch='";
+    if let Some(pos) = xml.find(key_single) {
+        let rest = &xml[pos + key_single.len()..];
+        if let Some(end) = rest.find('\'') {
+            let val = &rest[..end];
+            let decoded = decode_xml_entities(val);
+            if !decoded.trim().is_empty() {
+                return Some(decoded);
+            }
+        }
+    }
+    // Fallback: check arguments="..." inside <action>
+    let arg_key = "arguments=\"";
+    if let Some(pos) = xml.find(arg_key) {
+        let rest = &xml[pos + arg_key.len()..];
+        if let Some(end) = rest.find('"') {
+            let val = &rest[..end];
+            let decoded = decode_xml_entities(val);
+            if !decoded.trim().is_empty() {
+                return Some(decoded);
+            }
+        }
+    }
+    None
+}
+
+fn get_toast_launch_args_from_db(notification_id: u32) -> Option<String> {
+    let local_app_data = std::env::var("LOCALAPPDATA").ok()?;
+    let db_path = format!("{}\\Microsoft\\Windows\\Notifications\\wpndatabase.db", local_app_data);
+
+    let conn = rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+    ).ok()?;
+
+    let mut stmt = conn.prepare("SELECT Payload FROM Notification WHERE Id = ?1 LIMIT 1").ok()?;
+    let payload_bytes: Vec<u8> = stmt.query_row([notification_id], |row| row.get(0)).ok()?;
+    let xml_str = String::from_utf8(payload_bytes).ok()?;
+
+    extract_launch_attribute(&xml_str)
+}
+
+fn parse_guid(s: &str) -> Option<windows::core::GUID> {
+    let clean = s.trim().trim_matches(|c| c == '{' || c == '}' || c == '\0').trim();
+    let hex_only: String = clean.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    if hex_only.len() == 32 {
+        if let Ok(u) = u128::from_str_radix(&hex_only, 16) {
+            return Some(windows::core::GUID::from_u128(u));
+        }
+    }
+    None
+}
+
+fn extract_clsid_from_manifest(xml: &str) -> Option<windows::core::GUID> {
+    let key = "ToastActivatorCLSID=\"";
+    if let Some(pos) = xml.find(key) {
+        let rest = &xml[pos + key.len()..];
+        if let Some(end) = rest.find('"') {
+            return parse_guid(&rest[..end]);
+        }
+    }
+    None
+}
+
+fn resolve_toast_activator_clsid(app_id: &str) -> Option<windows::core::GUID> {
+    let clean = app_id.trim();
+    if clean.is_empty() {
+        return None;
+    }
+
+    // 1. Fast-path for WhatsApp
+    if clean.starts_with("5319275A.WhatsAppDesktop") {
+        // WhatsApp Toast Activator CLSID: bebd6a5e-1b14-4a57-a195-c772d28b6d15
+        return Some(windows::core::GUID::from_u128(0xbebd6a5e_1b14_4a57_a195_c772d28b6d15));
+    }
+
+    // 2. If it's a packaged app (PackageFamilyName!AppId)
+    if let Some(pkg_family) = clean.split('!').next() {
+        if !pkg_family.is_empty() && clean.contains('!') {
+            if let Ok(entries) = std::fs::read_dir("C:\\Program Files\\WindowsApps") {
+                for entry in entries.flatten() {
+                    let file_name = entry.file_name().to_string_lossy().to_string();
+                    if file_name.starts_with(pkg_family) {
+                        let manifest_path = entry.path().join("AppxManifest.xml");
+                        if manifest_path.exists() {
+                            if let Ok(manifest_content) = std::fs::read_to_string(&manifest_path) {
+                                if let Some(guid) = extract_clsid_from_manifest(&manifest_content) {
+                                    return Some(guid);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Check Windows Registry HKCR:\AppUserModelId\<aumid>\ToastActivatorCLSID
+    use windows::Win32::System::Registry::{RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CLASSES_ROOT, KEY_READ, REG_SZ};
+    unsafe {
+        let subkey = format!("AppUserModelId\\{}\0", clean);
+        let subkey_wide: Vec<u16> = subkey.encode_utf16().collect();
+        let mut hkey = HKEY::default();
+        if RegOpenKeyExW(HKEY_CLASSES_ROOT, windows::core::PCWSTR(subkey_wide.as_ptr()), 0, KEY_READ, &mut hkey).is_ok() {
+            let val_name: Vec<u16> = "ToastActivatorCLSID\0".encode_utf16().collect();
+            let mut buf = [0u16; 64];
+            let mut len = (buf.len() * 2) as u32;
+            let mut typ = REG_SZ;
+            if RegQueryValueExW(hkey, windows::core::PCWSTR(val_name.as_ptr()), None, Some(&mut typ), Some(buf.as_mut_ptr() as *mut _), Some(&mut len)).is_ok() {
+                let s = String::from_utf16_lossy(&buf);
+                if let Some(guid) = parse_guid(&s) {
+                    return Some(guid);
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn extract_item(n: &windows::UI::Notifications::UserNotification) -> Option<NotificationItem> {
     let id = n.Id().ok()?;
     let app_info = n.AppInfo().ok();
@@ -60,22 +201,8 @@ fn extract_item(n: &windows::UI::Notifications::UserNotification) -> Option<Noti
 
     let mut title = String::new();
     let mut body = String::new();
-    let mut launch_args = None;
 
     if let Ok(notif) = n.Notification() {
-        use windows::core::ComInterface;
-        if let Ok(toast) = notif.cast::<windows::UI::Notifications::ToastNotification>() {
-            if let Ok(xml) = toast.Content() {
-                if let Ok(doc_element) = xml.DocumentElement() {
-                    if let Ok(attr) = doc_element.GetAttribute(&windows::core::HSTRING::from("launch")) {
-                        let s = attr.to_string();
-                        if !s.is_empty() {
-                            launch_args = Some(s);
-                        }
-                    }
-                }
-            }
-        }
         if let Ok(visual) = notif.Visual() {
             if let Ok(bindings) = visual.Bindings() {
                 for binding in bindings {
@@ -97,6 +224,8 @@ fn extract_item(n: &windows::UI::Notifications::UserNotification) -> Option<Noti
             }
         }
     }
+
+    let launch_args = get_toast_launch_args_from_db(id);
 
     let timestamp = n.CreationTime()
         .map(|dt| {
@@ -381,57 +510,82 @@ pub fn open_notification_app(
         launch_args
     );
 
-    let args_str = launch_args.unwrap_or_default();
+    let clean_aumid = app_id.as_deref().unwrap_or("").trim();
+    let args_str = launch_args.as_deref().unwrap_or("").trim();
 
-    // 1. If launch_args is a protocol URI (e.g. slack://, discord://, spotify:, http://, https://, etc.)
-    if (args_str.contains("://") || (args_str.contains(':') && !args_str.contains(' ') && !args_str.contains('=')))
-        && !args_str.starts_with("shell:")
-    {
-        if std::process::Command::new("explorer.exe").arg(&args_str).spawn().is_ok() {
-            return Ok(());
-        }
-    }
-
-    // 2. Try IApplicationActivationManager::ActivateApplication with args
-    if let Some(ref aumid) = app_id {
-        let clean = aumid.trim();
-        if !clean.is_empty() {
+    // 1. Try COM INotificationActivationCallback if the app registers a ToastActivatorCLSID (e.g. WhatsApp, Slack)
+    if !clean_aumid.is_empty() {
+        if let Some(clsid) = resolve_toast_activator_clsid(clean_aumid) {
             unsafe {
                 use windows::Win32::System::Com::{
-                    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+                    CoCreateInstance, CoInitializeEx, CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED,
                 };
-                use windows::Win32::UI::Shell::{
-                    ApplicationActivationManager, IApplicationActivationManager, AO_NONE,
-                };
-                use windows::core::HSTRING;
+                use windows::Win32::UI::Notifications::INotificationActivationCallback;
+                use windows::core::PCWSTR;
 
                 let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-                if let Ok(manager) =
-                    CoCreateInstance::<_, IApplicationActivationManager>(&ApplicationActivationManager, None, CLSCTX_INPROC_SERVER)
-                {
-                    let h_aumid = HSTRING::from(clean);
-                    let h_args = HSTRING::from(&args_str);
-                    if let Ok(pid) = manager.ActivateApplication(&h_aumid, &h_args, AO_NONE) {
+                if let Ok(callback) = CoCreateInstance::<_, INotificationActivationCallback>(&clsid, None, CLSCTX_LOCAL_SERVER) {
+                    let aumid_wide: Vec<u16> = clean_aumid.encode_utf16().chain(std::iter::once(0)).collect();
+                    let args_wide: Vec<u16> = args_str.encode_utf16().chain(std::iter::once(0)).collect();
+                    if callback.Activate(PCWSTR(aumid_wide.as_ptr()), PCWSTR(args_wide.as_ptr()), &[]).is_ok() {
                         dlog!(
-                            "[NOTIFICATIONS] Activated app {} (pid {}) with args: {}",
-                            clean,
-                            pid,
+                            "[NOTIFICATIONS] Deep-activated app {} via INotificationActivationCallback with args: {}",
+                            clean_aumid,
                             args_str
                         );
                         return Ok(());
                     }
                 }
             }
-
-            // Fallback: explorer.exe shell:AppsFolder\<aumid>
-            let target = format!("shell:AppsFolder\\{}", clean);
-            if std::process::Command::new("explorer.exe").arg(&target).spawn().is_ok() {
-                return Ok(());
-            }
         }
     }
 
-    // 3. Fallback: app_name
+    // 2. If launch_args is a protocol URI (e.g. whatsapp://, slack://, discord://, spotify:, http://, https://, etc.)
+    if (args_str.contains("://") || (args_str.contains(':') && !args_str.contains(' ') && !args_str.contains('=')))
+        && !args_str.starts_with("shell:")
+    {
+        if std::process::Command::new("explorer.exe").arg(args_str).spawn().is_ok() {
+            return Ok(());
+        }
+    }
+
+    // 3. Try IApplicationActivationManager::ActivateApplication with args
+    if !clean_aumid.is_empty() {
+        unsafe {
+            use windows::Win32::System::Com::{
+                CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+            };
+            use windows::Win32::UI::Shell::{
+                ApplicationActivationManager, IApplicationActivationManager, AO_NONE,
+            };
+            use windows::core::HSTRING;
+
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            if let Ok(manager) =
+                CoCreateInstance::<_, IApplicationActivationManager>(&ApplicationActivationManager, None, CLSCTX_INPROC_SERVER)
+            {
+                let h_aumid = HSTRING::from(clean_aumid);
+                let h_args = HSTRING::from(args_str);
+                if let Ok(pid) = manager.ActivateApplication(&h_aumid, &h_args, AO_NONE) {
+                    dlog!(
+                        "[NOTIFICATIONS] Activated app {} (pid {}) with args: {}",
+                        clean_aumid,
+                        pid,
+                        args_str
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
+        // Fallback: explorer.exe shell:AppsFolder\<aumid>
+        let target = format!("shell:AppsFolder\\{}", clean_aumid);
+        if std::process::Command::new("explorer.exe").arg(&target).spawn().is_ok() {
+            return Ok(());
+        }
+    }
+
+    // 4. Fallback: app_name
     if let Some(ref name) = app_name {
         let clean = name.trim();
         if !clean.is_empty() {
@@ -453,6 +607,23 @@ pub async fn clear_all_notifications() -> Result<(), String> {
                 for n in notifs {
                     if let Ok(id) = n.Id() {
                         let _ = listener.RemoveNotification(id);
+                    }
+                }
+            }
+        }
+
+        // Also check wpndatabase.db for any remaining active toasts and remove them
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            let db_path = format!("{}\\Microsoft\\Windows\\Notifications\\wpndatabase.db", local_app_data);
+            if let Ok(conn) = rusqlite::Connection::open_with_flags(
+                &db_path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+            ) {
+                if let Ok(mut stmt) = conn.prepare("SELECT Id FROM Notification WHERE Type = 'toast'") {
+                    if let Ok(rows) = stmt.query_map([], |row| row.get::<_, u32>(0)) {
+                        for id in rows.flatten() {
+                            let _ = listener.RemoveNotification(id);
+                        }
                     }
                 }
             }

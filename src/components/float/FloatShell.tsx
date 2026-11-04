@@ -397,23 +397,39 @@ const FloatShell: React.FC = () => {
   }, [clearIdleToOrbTimer, transitionTo]);
 
   const handleDismissNotification = useCallback(() => {
-    if (primaryRef.current?.kind === "notification") {
-      const notifId = primaryRef.current.notificationId;
-      if (typeof notifId === "number") {
-        removeNotification(notifId);
-        setNotifications((prev) => prev.filter((n) => n.id !== notifId));
-      }
+    const notifId =
+      primaryRef.current?.kind === "notification" && typeof primaryRef.current.notificationId === "number"
+        ? primaryRef.current.notificationId
+        : typeof notificationState?.notificationId === "number"
+        ? notificationState.notificationId
+        : notifications[0]?.id;
+
+    if (typeof notifId === "number") {
+      removeNotification(notifId);
+      setNotifications((prev) => prev.filter((n) => n.id !== notifId));
     }
     dismissKind("notification");
     setNotificationPreviewOpen(false);
-  }, [dismissKind]);
+  }, [dismissKind, notificationState, notifications]);
 
   const handleDismissNotificationItem = useCallback((id: number) => {
     removeNotification(id);
     setNotifications((prev) => {
       const remaining = prev.filter((n) => n.id !== id);
       if (remaining.length === 0) {
-        setNotificationState((state) => (state ? { ...state, hasNotification: false } : null));
+        setNotificationState({ hasNotification: false, isNew: false });
+      } else {
+        const next = remaining[0];
+        setNotificationState({
+          hasNotification: true,
+          isNew: false,
+          appId: next.appId,
+          appName: next.appName,
+          title: next.title,
+          body: next.body,
+          notificationId: next.id,
+          launchArgs: next.launchArgs,
+        });
       }
       return remaining;
     });
@@ -440,9 +456,13 @@ const FloatShell: React.FC = () => {
       clearClickTimer();
       const notif = primaryRef.current;
       openNotificationApp(notif.appId, notif.appName, notif.launchArgs);
-      if (typeof notif.notificationId === "number") {
-        removeNotification(notif.notificationId);
-        setNotifications((prev) => prev.filter((n) => n.id !== notif.notificationId));
+      const notifId =
+        typeof notif.notificationId === "number"
+          ? notif.notificationId
+          : notificationState?.notificationId;
+      if (typeof notifId === "number") {
+        removeNotification(notifId);
+        setNotifications((prev) => prev.filter((n) => n.id !== notifId));
       }
       dismissKind("notification");
       return;
@@ -742,6 +762,8 @@ const FloatShell: React.FC = () => {
           appName: payload.appName,
           title: payload.title,
           body: payload.body,
+          notificationId: payload.item?.id,
+          launchArgs: payload.item?.launchArgs,
         });
 
         if (payload.isNew && cfg.notificationPresence) {
