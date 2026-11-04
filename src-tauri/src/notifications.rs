@@ -19,6 +19,8 @@ pub struct NotificationItem {
     /// AppUserModelId of the sender; key for `get_app_icon`.
     #[serde(rename = "appId", skip_serializing_if = "Option::is_none")]
     pub app_id: Option<String>,
+    #[serde(rename = "launchArgs", skip_serializing_if = "Option::is_none")]
+    pub launch_args: Option<String>,
 }
 
 #[derive(Clone, Serialize, Debug)]
@@ -58,9 +60,23 @@ fn extract_item(n: &windows::UI::Notifications::UserNotification) -> Option<Noti
 
     let mut title = String::new();
     let mut body = String::new();
+    let mut launch_args = None;
 
-    if let Ok(toast_notif) = n.Notification() {
-        if let Ok(visual) = toast_notif.Visual() {
+    if let Ok(notif) = n.Notification() {
+        use windows::core::ComInterface;
+        if let Ok(toast) = notif.cast::<windows::UI::Notifications::ToastNotification>() {
+            if let Ok(xml) = toast.Content() {
+                if let Ok(doc_element) = xml.DocumentElement() {
+                    if let Ok(attr) = doc_element.GetAttribute(&windows::core::HSTRING::from("launch")) {
+                        let s = attr.to_string();
+                        if !s.is_empty() {
+                            launch_args = Some(s);
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(visual) = notif.Visual() {
             if let Ok(bindings) = visual.Bindings() {
                 for binding in bindings {
                     if let Ok(texts) = binding.GetTextElements() {
@@ -106,6 +122,7 @@ fn extract_item(n: &windows::UI::Notifications::UserNotification) -> Option<Noti
         body: body_trunc,
         timestamp,
         app_id,
+        launch_args,
     })
 }
 
@@ -344,23 +361,77 @@ async fn setup_notification_listener(app: AppHandle) -> Result<(), Box<dyn std::
 pub fn remove_notification(id: u32) -> Result<(), String> {
     dlog!("[NOTIFICATIONS] remove_notification called for id: {}", id);
     if let Ok(listener) = UserNotificationListener::Current() {
-        let _ = listener.RemoveNotification(id);
+        if let Err(e) = listener.RemoveNotification(id) {
+            eprintln!("[NOTIFICATIONS] RemoveNotification({}) error: {:?}", id, e);
+        }
     }
     Ok(())
 }
 
 #[tauri::command]
-pub fn open_notification_app(app_id: Option<String>, app_name: Option<String>) -> Result<(), String> {
-    dlog!("[NOTIFICATIONS] open_notification_app: appId={:?}, appName={:?}", app_id, app_name);
+pub fn open_notification_app(
+    app_id: Option<String>,
+    app_name: Option<String>,
+    launch_args: Option<String>,
+) -> Result<(), String> {
+    dlog!(
+        "[NOTIFICATIONS] open_notification_app: appId={:?}, appName={:?}, launchArgs={:?}",
+        app_id,
+        app_name,
+        launch_args
+    );
+
+    let args_str = launch_args.unwrap_or_default();
+
+    // 1. If launch_args is a protocol URI (e.g. slack://, discord://, spotify:, http://, https://, etc.)
+    if (args_str.contains("://") || (args_str.contains(':') && !args_str.contains(' ') && !args_str.contains('=')))
+        && !args_str.starts_with("shell:")
+    {
+        if std::process::Command::new("explorer.exe").arg(&args_str).spawn().is_ok() {
+            return Ok(());
+        }
+    }
+
+    // 2. Try IApplicationActivationManager::ActivateApplication with args
     if let Some(ref aumid) = app_id {
         let clean = aumid.trim();
         if !clean.is_empty() {
+            unsafe {
+                use windows::Win32::System::Com::{
+                    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+                };
+                use windows::Win32::UI::Shell::{
+                    ApplicationActivationManager, IApplicationActivationManager, AO_NONE,
+                };
+                use windows::core::HSTRING;
+
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+                if let Ok(manager) =
+                    CoCreateInstance::<_, IApplicationActivationManager>(&ApplicationActivationManager, None, CLSCTX_INPROC_SERVER)
+                {
+                    let h_aumid = HSTRING::from(clean);
+                    let h_args = HSTRING::from(&args_str);
+                    if let Ok(pid) = manager.ActivateApplication(&h_aumid, &h_args, AO_NONE) {
+                        dlog!(
+                            "[NOTIFICATIONS] Activated app {} (pid {}) with args: {}",
+                            clean,
+                            pid,
+                            args_str
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+
+            // Fallback: explorer.exe shell:AppsFolder\<aumid>
             let target = format!("shell:AppsFolder\\{}", clean);
             if std::process::Command::new("explorer.exe").arg(&target).spawn().is_ok() {
                 return Ok(());
             }
         }
     }
+
+    // 3. Fallback: app_name
     if let Some(ref name) = app_name {
         let clean = name.trim();
         if !clean.is_empty() {
@@ -368,14 +439,24 @@ pub fn open_notification_app(app_id: Option<String>, app_name: Option<String>) -
             let _ = std::process::Command::new("explorer.exe").arg(&target).spawn();
         }
     }
+
     Ok(())
 }
 
 #[tauri::command]
-pub fn clear_all_notifications() -> Result<(), String> {
+pub async fn clear_all_notifications() -> Result<(), String> {
     dlog!("[NOTIFICATIONS] clear_all_notifications called");
     if let Ok(listener) = UserNotificationListener::Current() {
         let _ = listener.ClearNotifications();
+        if let Ok(op) = listener.GetNotificationsAsync(windows::UI::Notifications::NotificationKinds::Toast) {
+            if let Ok(notifs) = op.await {
+                for n in notifs {
+                    if let Ok(id) = n.Id() {
+                        let _ = listener.RemoveNotification(id);
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }

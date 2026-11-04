@@ -5,6 +5,7 @@ import { MediaSession } from "../../platform/media";
 import { MediaWidgetPill } from "./MediaWidgetPill";
 import { OrbNotificationState } from "./FloatOrb";
 import { AppIcon } from "./AppIcon";
+import { openNotificationApp, removeNotification } from "../../platform";
 import { VolumeHud } from "./VolumeHud";
 import { IdleNotch } from "./IdleNotch";
 import { CalendarAlertActivity, StatusActivity, TimerActivity, VolumeActivity } from "../../activities/types";
@@ -140,7 +141,19 @@ export const FloatPill: React.FC<FloatPillProps> = ({
             )}
           </div>
         ) : isNotificationActive && notification?.hasNotification ? (
-          <div className="float-pill-notification-banner">
+          <div
+            className="float-pill-notification-banner"
+            onClick={(e) => {
+              e.stopPropagation();
+              openNotificationApp(notification.appId, notification.appName, notification.launchArgs);
+              if (typeof notification.notificationId === "number") {
+                removeNotification(notification.notificationId);
+              }
+              onDismissNotification?.();
+            }}
+            style={{ cursor: "pointer" }}
+            title={`Open ${notification.appName || "app"}`}
+          >
             <div className="pill-notif-app-indicator">
               {showContent ? (
                 <AppIcon appId={notification.appId} appName={notification.appName} size={32} />

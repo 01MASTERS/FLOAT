@@ -59,7 +59,10 @@ export const FloatNotificationsView: React.FC<FloatNotificationsViewProps> = ({
               exit={{ opacity: 0, x: -20, height: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0 }}
               transition={{ type: "spring", stiffness: 460, damping: 36 }}
               className="notif-row"
-              onClick={() => openNotificationApp(item.appId, item.appName)}
+              onClick={() => {
+                openNotificationApp(item.appId, item.appName, item.launchArgs);
+                onDismiss(item.id);
+              }}
               title={`Open ${item.appName || "app"}`}
             >
               <AppIcon appId={item.appId} appName={item.appName} size={28} />

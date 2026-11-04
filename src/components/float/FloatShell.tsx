@@ -439,7 +439,7 @@ const FloatShell: React.FC = () => {
     if (primaryRef.current?.kind === "notification") {
       clearClickTimer();
       const notif = primaryRef.current;
-      openNotificationApp(notif.appId, notif.appName);
+      openNotificationApp(notif.appId, notif.appName, notif.launchArgs);
       if (typeof notif.notificationId === "number") {
         removeNotification(notif.notificationId);
         setNotifications((prev) => prev.filter((n) => n.id !== notif.notificationId));
@@ -760,6 +760,7 @@ const FloatShell: React.FC = () => {
                 appName: payload.appName,
                 title: payload.title,
                 body: payload.body,
+                launchArgs: payload.item?.launchArgs,
               },
               NOTIFICATION_DWELL_MS,
               () => {
@@ -1387,7 +1388,15 @@ const FloatShell: React.FC = () => {
 
   const pillNotification: OrbNotificationState | null =
     primary?.kind === "notification"
-      ? { hasNotification: true, appId: primary.appId, appName: primary.appName, title: primary.title, body: primary.body }
+      ? {
+          hasNotification: true,
+          appId: primary.appId,
+          appName: primary.appName,
+          title: primary.title,
+          body: primary.body,
+          notificationId: primary.notificationId,
+          launchArgs: primary.launchArgs,
+        }
       : notificationState;
 
   return (

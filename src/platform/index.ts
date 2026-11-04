@@ -650,6 +650,7 @@ export interface NotificationItem {
   timestamp: number;
   appId?: string;
   isRead?: boolean;
+  launchArgs?: string;
 }
 
 export interface NotificationPresencePayload {
@@ -783,9 +784,9 @@ export async function mediaSeek(position: number, sessionId?: string): Promise<v
   }
 }
 
-export async function openNotificationApp(appId?: string, appName?: string): Promise<void> {
+export async function openNotificationApp(appId?: string, appName?: string, launchArgs?: string): Promise<void> {
   try {
-    await invoke("open_notification_app", { appId, appName });
+    await invoke("open_notification_app", { appId, appName, launchArgs });
   } catch (e) {
     console.error("openNotificationApp failed:", e);
   }

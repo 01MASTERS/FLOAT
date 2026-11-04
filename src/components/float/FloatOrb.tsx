@@ -12,6 +12,8 @@ export interface OrbNotificationState {
   appName?: string;
   title?: string;
   body?: string;
+  notificationId?: number;
+  launchArgs?: string;
 }
 
 export interface OrbFocusState {
