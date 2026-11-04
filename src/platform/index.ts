@@ -649,6 +649,7 @@ export interface NotificationItem {
   body: string;
   timestamp: number;
   appId?: string;
+  iconUrl?: string;
   isRead?: boolean;
   launchArgs?: string;
 }
@@ -660,6 +661,7 @@ export interface NotificationPresencePayload {
   removedId?: number;
   initialItems?: NotificationItem[];
   appName?: string;
+  iconUrl?: string;
   title?: string;
   body?: string;
 }

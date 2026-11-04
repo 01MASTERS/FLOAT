@@ -16,7 +16,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use windows::Win32::UI::Shell::{
-    IShellItemImageFactory, SHCreateItemInKnownFolder, FOLDERID_AppsFolder, KF_FLAG_DEFAULT,
+    IShellItemImageFactory, SHCreateItemInKnownFolder, SHCreateItemFromParsingName, FOLDERID_AppsFolder, KF_FLAG_DEFAULT,
     SIIGBF_ICONONLY, SIIGBF_RESIZETOFIT,
 };
 
@@ -105,9 +105,27 @@ pub fn com_init_sta() {
 
 fn render_icon(app_id: &str) -> Option<String> {
     com_init_sta();
-    let factory: IShellItemImageFactory = unsafe {
-        SHCreateItemInKnownFolder(&FOLDERID_AppsFolder, KF_FLAG_DEFAULT.0 as u32, &HSTRING::from(app_id)).ok()?
+    let factory: Option<IShellItemImageFactory> = unsafe {
+        SHCreateItemInKnownFolder(&FOLDERID_AppsFolder, KF_FLAG_DEFAULT.0 as u32, &HSTRING::from(app_id))
+            .ok()
+            .or_else(|| {
+                SHCreateItemFromParsingName(&HSTRING::from(app_id), None).ok()
+            })
     };
+    let factory = factory.or_else(|| {
+        let clean = app_id.split('.').last().unwrap_or(app_id);
+        if let Some(shortcut_path) = crate::notifications::find_start_menu_shortcut(clean) {
+            if let Some(path_str) = shortcut_path.to_str() {
+                unsafe {
+                    SHCreateItemFromParsingName(&HSTRING::from(path_str), None).ok()
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    })?;
     Some(STANDARD.encode(render_shell_image(&factory, ICON_SIZE, true)?))
 }
 

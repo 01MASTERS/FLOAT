@@ -1,6 +1,6 @@
 {
   "model_profile": "inherit",
-  "commit_docs": true,
+  "commit_docs": false,
   "parallelization": true,
   "search_gitignored": false,
   "brave_search": false,
@@ -13,7 +13,6 @@
   "git": {
     "branching_strategy": "none",
     "create_tag": true,
-    "repo_tagging": "single",
     "phase_branch_template": "gsd/phase-{phase}-{slug}",
     "milestone_branch_template": "gsd/{milestone}-{slug}",
     "quick_branch_template": null
@@ -22,7 +21,7 @@
     "research": true,
     "plan_check": true,
     "verifier": true,
-    "nyquist_validation": true,
+    "nyquist_validation": false,
     "auto_advance": false,
     "node_repair": true,
     "node_repair_budget": 2,
@@ -33,7 +32,7 @@
     "human_verify_mode": "end-of-phase",
     "context_guard_mode": "warn",
     "text_mode": false,
-    "compact_content": false,
+    "compact_content": true,
     "research_before_questions": false,
     "discuss_mode": "discuss",
     "skip_discuss": false,
@@ -51,31 +50,7 @@
     "security_block_on": "high"
   },
   "ship": {
-    "pr_body_sections": [
-      {
-        "heading": "User Stories & Acceptance Criteria",
-        "enabled": true,
-        "source": "REQUIREMENTS.md ## User Stories || REQUIREMENTS.md ## Acceptance Criteria",
-        "fallback": "- Acceptance criteria are covered by the linked requirements and verification evidence."
-      },
-      {
-        "heading": "Risks & Dependencies",
-        "enabled": true,
-        "source": "PLAN.md ## Risks || PLAN.md ## Dependencies",
-        "fallback": "- No known high-risk rollout dependencies."
-      },
-      {
-        "heading": "Success Metrics & Release Criteria",
-        "enabled": true,
-        "source": "REQUIREMENTS.md ## Definition of Done || VERIFICATION.md ## Release Criteria",
-        "fallback": "- Release when automated verification and required manual checks pass."
-      },
-      {
-        "heading": "Stakeholder Review & Approval",
-        "enabled": true,
-        "template": "- Product owner approval pending for {phase_name}."
-      }
-    ]
+    "pr_body_sections": []
   },
   "hooks": {
     "context_warnings": true
@@ -83,12 +58,12 @@
   "project_code": null,
   "phase_naming": "sequential",
   "agent_skills": {},
-  "claude_md_path": "./.claude/CLAUDE.md",
+  "claude_md_path": "./.agents/GEMINI.md",
   "plan_review": {
     "source_grounding": true,
     "source_grounding_authority": "grep"
   },
   "resolve_model_ids": "omit",
   "mode": "yolo",
-  "granularity": "standard"
+  "granularity": "coarse"
 }

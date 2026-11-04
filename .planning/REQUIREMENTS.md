@@ -1,84 +1,68 @@
-# Requirements: FLOAT Calendar & Agenda Expansion
+# Requirements: FLOAT - Calendar, Tasks & Sizing Expansion
 
-**Defined:** 2026-10-29  
-**Core Value:** Calm, glanceable desktop awareness that seamlessly surfaces your next meeting, birthday, or task without cluttering your workflow.
+**Defined:** 2026-10-30  
+**Core Value:** Calm, glanceable desktop awareness that seamlessly surfaces your closest meeting, birthday, or task without cluttering your workflow.
 
 ## v1 Requirements
 
-Requirements for initial release. Each maps to roadmap phases.
+### Native Calendar & Tasks Engine (CAL-ENG)
 
-### Feed Management
+- [x] **CAL-01**: Rust calendar engine normalizes `VALUE=DATE` to local day-start so all-day events and annual recurring birthdays expand properly via `rrule`.
+- [x] **CAL-02**: Rust calendar engine parses `BEGIN:VTODO` components to extract tasks with due dates and completion status.
+- [x] **CAL-03**: Rust calendar engine removes the hardcoded 3-event limit, returning up to 50 upcoming events across the 30-day horizon.
+- [x] **CAL-04**: Rust backend and Settings UI support configuring, labeling, and aggregating multiple iCalendar feed URLs (e.g. Primary, Birthdays, Tasks) under one account.
 
-- [ ] **FEED-01**: User can configure multiple ICS calendar feeds in Settings with custom labels, URLs, and color accents.
-- [ ] **FEED-02**: User can individually toggle feeds on or off, edit existing feeds, and remove feeds.
-- [ ] **FEED-03**: Existing single `calendarUrl` setting is automatically migrated to the new multi-feed configuration without data loss.
+### Dedicated Calendar Tab (CAL-TAB)
 
-### Native Parsing & Recurrence
+- [x] **CAL-05**: User can switch to a dedicated "Calendar" tab on `FloatSurface` to view upcoming schedule.
+- [x] **CAL-06**: Calendar tab chronologically groups events into Today, Tomorrow, and Later sections with relative times.
+- [x] **CAL-07**: Calendar items display distinct visual badges and icons (🎂 Birthdays, 📅 Meetings, 📋 Tasks).
 
-- [ ] **PARSE-01**: Native Rust backend fetches multiple calendar feeds concurrently with per-feed timeout and independent cache TTLs.
-- [ ] **PARSE-02**: Backend correctly parses all-day events (`VALUE=DATE`) using local date boundaries to prevent UTC offset day shifts.
-- [ ] **PARSE-03**: Backend handles annual and recurring events (`RRULE` with yearly/monthly/weekly recurrence) bounded safely to prevent infinite loops.
-- [ ] **PARSE-04**: Backend classifies event types, specifically identifying birthdays (via summary keywords like "Birthday", "Bday", or contact calendar name) and tagging them with `isBirthday: true`.
+### Home Line & Notch Alerts (NOTCH-HOME)
 
-### Surface Agenda & Unified Timeline
+- [x] **NOTCH-01**: Compact Home clock line dynamically surfaces the closest upcoming or ongoing event, birthday, or task.
+- [x] **NOTCH-02**: Clicking the Home event chip immediately opens the expanded surface directly to the Calendar tab.
+- [x] **NOTCH-03**: Notch briefly pops up an activity alert when an event is starting or for a birthday on that morning.
 
-- [ ] **AGENDA-01**: Surface navigation includes a dedicated Agenda tab for viewing the full day's agenda and upcoming days.
-- [ ] **AGENDA-02**: Agenda view displays birthdays prominently in an agenda header/banner with celebratory 🎂 badge and styling.
-- [ ] **AGENDA-03**: Agenda view chronologically interleaves calendar events and uncompleted FLOAT local tasks into a unified daily briefing.
-- [ ] **AGENDA-04**: Agenda provides clean day grouping (Today, Tomorrow, Later This Week) with color dots matching each calendar feed.
+### Task Editing & 85% Sizing (TASK-SIZE)
 
-### Home Line & Prioritization
-
-- [ ] **HOME-01**: Home line applies smart prioritization to display the single most critical item (ongoing meeting > meeting in < 60m > today's birthday > upcoming meeting today > next pending task).
-- [ ] **HOME-02**: Home line displays distinct badges/icons for birthdays (🎂), meetings (colored dot), and tasks (checkbox icon).
-- [ ] **HOME-03**: Clicking on the next event/task chip on the Home line navigates directly to the Surface Agenda view.
+- [x] **TASK-01**: In `TasksView`, user can double-click any task title to edit it inline with Enter/blur to save and Escape to cancel.
+- [x] **TASK-02**: FLOAT notch, expanded surface, and hit-testing click-through regions scale to 85% of standard size.
 
 ## v2 Requirements
 
-Deferred to future release. Tracked but not in current roadmap.
-
-### Integrations & Actions
-
-- **V2-01**: Auto-detect video conference links (Zoom, Google Meet, Teams) with a one-click "Join" button in the Agenda view.
-- **V2-02**: Optional Dynamic Island banner notification 5 minutes before a scheduled meeting starts.
-- **V2-03**: Google Calendar / Microsoft Outlook OAuth one-click connect alternative to manual ICS URLs.
+- **CAL-V2-01**: Filter calendar events by feed tag or category in the Agenda tab.
+- **CAL-V2-02**: Desktop notification chime toggle for calendar notch alerts.
 
 ## Out of Scope
 
-Explicitly excluded. Documented to prevent scope creep.
-
 | Feature | Reason |
 |---------|--------|
-| Two-way calendar sync / Event creation | FLOAT is a glanceable desktop monitor/island, not a full calendar client. Creating events adds high complexity and editing conflicts. |
-| Proprietary cloud sync backend | Zero-cloud architecture keeps user data 100% private and local; uses public/private ICS subscription standards. |
-| Exchange ActiveSync / native MAPI | Standard ICS feeds cover Google Calendar, Microsoft 365, Apple iCloud, Fastmail, and Nextcloud. |
+| Two-way event creation/editing from FLOAT | Read-only ICS feed integration preserves user privacy and eliminates cloud credential dependencies. |
+| OAuth Google Sign-in flow | Requires external cloud API verification and secret keys; private ICS links work locally without tokens. |
+| Heavy full-month calendar grid | Unsuitable for a compact dynamic island overlay; clean agenda timeline provides superior glanceability. |
 
 ## Traceability
 
-Which phases cover which requirements. Updated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FEED-01 | Phase 2 | Pending |
-| FEED-02 | Phase 2 | Pending |
-| FEED-03 | Phase 2 | Pending |
-| PARSE-01 | Phase 1 | Pending |
-| PARSE-02 | Phase 1 | Pending |
-| PARSE-03 | Phase 1 | Pending |
-| PARSE-04 | Phase 1 | Pending |
-| AGENDA-01 | Phase 3 | Pending |
-| AGENDA-02 | Phase 3 | Pending |
-| AGENDA-03 | Phase 3 | Pending |
-| AGENDA-04 | Phase 3 | Pending |
-| HOME-01 | Phase 4 | Pending |
-| HOME-02 | Phase 4 | Pending |
-| HOME-03 | Phase 4 | Pending |
+| CAL-01 | Phase 1 | Complete |
+| CAL-02 | Phase 1 | Complete |
+| CAL-03 | Phase 1 | Complete |
+| CAL-04 | Phase 1 | Complete |
+| CAL-05 | Phase 2 | Complete |
+| CAL-06 | Phase 2 | Complete |
+| CAL-07 | Phase 2 | Complete |
+| NOTCH-01 | Phase 2 | Complete |
+| NOTCH-02 | Phase 2 | Complete |
+| NOTCH-03 | Phase 3 | Complete |
+| TASK-01 | Phase 3 | Complete |
+| TASK-02 | Phase 3 | Complete |
 
 **Coverage:**
-- v1 requirements: 14 total
-- Mapped to phases: 14
+- v1 requirements: 11 total
+- Mapped to phases: 11
 - Unmapped: 0 ✓
 
 ---
-*Requirements defined: 2026-10-29*
-*Last updated: 2026-10-29 after initial definition*
+*Requirements defined: 2026-10-30*

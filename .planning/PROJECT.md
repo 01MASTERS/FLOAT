@@ -57,3 +57,4 @@ Calm, glanceable desktop awareness that seamlessly surfaces your closest meeting
 
 ---
 *Last updated: 2026-10-30 after project initialization*
+

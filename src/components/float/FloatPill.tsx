@@ -156,7 +156,7 @@ export const FloatPill: React.FC<FloatPillProps> = ({
           >
             <div className="pill-notif-app-indicator">
               {showContent ? (
-                <AppIcon appId={notification.appId} appName={notification.appName} size={32} />
+                <AppIcon appId={notification.appId} appName={notification.appName} iconUrl={notification.iconUrl} size={32} />
               ) : (
                 <span className="pill-notif-dot" />
               )}

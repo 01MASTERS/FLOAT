@@ -1,42 +1,86 @@
-# Domain Pitfalls: iCalendar Parsing, Recurrence & Multi-Feed Integration
+# Pitfalls Research
 
-## 1. Timezone & Floating Time Gotchas
-- **The Issue:**
-  - In iCalendar (RFC 5545), date-times can be specified in UTC (`20261029T120000Z`), with an explicit time zone parameter (`DTSTART;TZID=America/New_York:20261029T080000`), or as "floating" time (`20261029T080000`).
-  - All-day events and birthdays are almost always specified as pure dates (`DTSTART;VALUE=DATE:20261029`).
-- **Failure Mode:**
-  - If pure date strings are parsed into UTC midnight, a user in UTC+5:30 or UTC-8 will see the birthday start at 5:30 AM or 4:00 PM the previous day!
-- **Mitigation:**
-  - Explicitly treat all-day dates (`VALUE=DATE` or 8-digit `YYYYMMDD`) using local date boundaries: start at 00:00:00 local time and end at 23:59:59 local time.
+**Domain:** Desktop Productivity Overlay (Dynamic Island / Notch) with Calendar & Tasks Integration  
+**Researched:** 2026-10-30  
+**Confidence:** HIGH  
 
-## 2. Windows Timezone ID Discrepancies
-- **The Issue:**
-  - Microsoft Outlook exports ICS files containing Windows-specific timezone names (e.g. `TZID="Eastern Standard Time"` or `"India Standard Time"`), whereas standard iCalendar uses IANA time zone identifiers (`"America/New_York"`, `"Asia/Kolkata"`).
-- **Failure Mode:**
-  - The `rrule` crate parses standard IANA identifiers and fails when encountering Windows TZIDs, dropping events.
-- **Mitigation:**
-  - Maintain the fallback logic in `calendar.rs`: if `build(&dtstart)` fails due to an unrecognized TZID, fall back to parsing the wall-clock time as local floating time.
+## Critical Pitfalls
 
-## 3. Recurring Events & Birthday Infinite Loops
-- **The Issue:**
-  - Contact birthdays in Google Calendar are generated as `RRULE:FREQ=YEARLY` starting on the birth year (often decades ago) with no `UNTIL` or `COUNT`.
-- **Failure Mode:**
-  - Expanding an unbounded yearly rule from 1980 to infinity without bounds will freeze the thread or exhaust memory.
-- **Mitigation:**
-  - Always bound the query with `.after(horizon_start).before(horizon_end)` and pass an upper limit to `.all(n)`.
+### Pitfall 1: `rrule` Failure on Date-Only Strings (`VALUE=DATE`)
 
-## 4. Multi-Feed Latency & Network Hangs
-- **The Issue:**
-  - An unresponsive or slow corporate calendar server (e.g. slow VPN Exchange server) can stall a synchronous sequential fetch.
-- **Failure Mode:**
-  - UI freezes or waits 30+ seconds for calendar updates.
-- **Mitigation:**
-  - Strict 8-second HTTP socket timeout per feed.
-  - Concurrent background fetching so one slow feed never blocks another.
-  - Return stale cache if a refresh fails.
+**What goes wrong:**
+In iCalendar feeds, all-day events and birthdays use `DTSTART;VALUE=DATE:20261030`. The Rust `rrule` crate's `parse::<RRuleSet>()` method expects an ISO datetime with time components (e.g. `20261030T000000Z`). Passing date-only strings causes `parse()` to return `Err`, leading `finish()` to return `None`. Consequently, birthdays and full-day events vanish silently from the user's view.
 
-## 5. Multiple Feeds with Duplicate Events
-- **The Issue:**
-  - Users subscribing to both a Google account feed and an Apple iCloud feed may have shared or duplicate events.
-- **Mitigation:**
-  - Key events by a composite hash `(title, start_timestamp, all_day)` to deduplicate identical occurrences across feeds if configured.
+**Why it happens:**
+RFC 5545 allows both `DATE` and `DATE-TIME` forms. The developer assumes `rrule` handles both, but `rrule`'s strict grammar requires date-times for rule evaluation.
+
+**How to avoid:**
+Normalize any `DTSTART` line containing `VALUE=DATE` or an 8-character numeric date by appending `T000000` (e.g. `DTSTART:20261030T000000Z` or with the system's local timezone) before building the `RRuleSet`.
+
+**Warning signs:**
+Events with specific start times (flight tickets, scheduled Google Meet calls) appear, but all-day birthdays and holidays are missing entirely.
+
+**Phase to address:**
+Phase 1 (Native Calendar Engine).
+
+---
+
+### Pitfall 2: Hit-Test Boundary Misalignment at 85% Scale
+
+**What goes wrong:**
+If scaling is applied only in CSS (e.g. `transform: scale(0.85)` on an outer container), child element coordinates or backdrop brushes in Windows DWM can experience sub-pixel rounding errors or mismatched click boundaries. Mouse clicks around the edge of the island pass through or get captured by transparent margins.
+
+**Why it happens:**
+Windows `set_ignore_cursor_events` relies on physical screen coordinates reported by the frontend via `setHitRegions`. CSS transforms alter layout coordinates relative to parent viewport if not carefully accounted for in `getBoundingClientRect()`.
+
+**How to avoid:**
+Scale base layout constants directly in JavaScript / CSS custom properties (rather than applying an unconstrained CSS zoom/scale transform), ensuring `islandWidth`, `islandHeight`, and SVG path continuous corner math remain integers and match the native hit-rectangles.
+
+**Warning signs:**
+The mouse cursor cannot click items near the bottom edge of the expanded island, or clicking outside the island fails to pass through to desktop windows.
+
+**Phase to address:**
+Phase 3 (Sizing & UI Scaling).
+
+---
+
+### Pitfall 3: Blocking Background Threads on Slow / Unresponsive ICS Feeds
+
+**What goes wrong:**
+If a user adds multiple calendar URLs (e.g. Google Primary, Google Birthdays, Work Outlook) and one feed server hangs or times out, the entire calendar sync thread blocks, causing all calendar data to freeze.
+
+**Why it happens:**
+Sequential network requests in a single thread without independent timeouts or parallel polling.
+
+**How to avoid:**
+Use `ureq` with strict 10-second request timeouts and fetch feeds concurrently or independently. Maintain per-feed in-memory caches so a failure on one feed leaves other feeds unaffected.
+
+**Warning signs:**
+Calendar events take over 20 seconds to load or fail completely if one URL has connectivity issues.
+
+**Phase to address:**
+Phase 1 (Native Calendar Engine).
+
+---
+
+### Pitfall 4: Task Input Blur / Enter Race Condition in Inline Editing
+
+**What goes wrong:**
+When double-clicking a task to edit its title, hitting `Enter` saves the edit, but the subsequent `blur` event fires and triggers a duplicate save or attempts to edit a component that has already unmounted.
+
+**Why it happens:**
+Both `onKeyDown (Enter)` and `onBlur` call the save handler without tracking whether the edit has already committed or cancelled.
+
+**How to avoid:**
+Use a ref `isCommittingRef` or simple state flag in `TasksView.tsx` so `save()` is idempotent, and `Escape` cleanly discards changes without saving.
+
+**Warning signs:**
+Double submissions, console warnings about state updates on unmounted components, or tasks resetting unexpectedly.
+
+**Phase to address:**
+Phase 2 (Tasks & Calendar Views).
+
+---
+*Pitfalls research for: FLOAT - Calendar & Agenda Expansion*  
+*Researched: 2026-10-30*  
+

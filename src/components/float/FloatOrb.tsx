@@ -10,6 +10,7 @@ export interface OrbNotificationState {
   isNew?: boolean;
   appId?: string;
   appName?: string;
+  iconUrl?: string;
   title?: string;
   body?: string;
   notificationId?: number;
@@ -75,7 +76,7 @@ export const FloatOrb: React.FC<FloatOrbProps> = ({
           <div className="orb-preview-header">
             <div className="orb-preview-app-row">
               {showContent ? (
-                <AppIcon appId={notification?.appId} appName={notification?.appName} size={14} />
+                <AppIcon appId={notification?.appId} appName={notification?.appName} iconUrl={notification?.iconUrl} size={14} />
               ) : (
                 <span className="orb-preview-dot" />
               )}

@@ -39,6 +39,7 @@ Progress: [██████████] 100%
 | `261104-osy` | Fix Tasks view input and composer styling | 2026-11-04 | Complete ✓ |
 | `261104-pks` | Open apps from notifications, sync dismissal with Windows, and auto-fetch weather location | 2026-11-04 | Complete ✓ |
 | `261104-deep-notification-activation-sync` | Deep notification activation with COM INotificationActivationCallback & bidirectional Windows Action Center sync | 2026-11-04 | Complete ✓ |
+| `261105-disambiguate-notification-senders` | Disambiguate notification senders, resolve protocol handlers, custom appLogoOverride, and Start Menu shortcuts | 2026-11-05 | Complete ✓ |
 
 ## Performance Metrics
 

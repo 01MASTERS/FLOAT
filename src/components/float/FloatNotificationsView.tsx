@@ -65,7 +65,7 @@ export const FloatNotificationsView: React.FC<FloatNotificationsViewProps> = ({
               }}
               title={`Open ${item.appName || "app"}`}
             >
-              <AppIcon appId={item.appId} appName={item.appName} size={28} />
+              <AppIcon appId={item.appId} appName={item.appName} iconUrl={item.iconUrl} size={28} />
               <div className="notif-text">
                 <div className="notif-top">
                   <span className="notif-title">{item.title || item.appName || "Notification"}</span>

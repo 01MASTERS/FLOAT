@@ -32,6 +32,7 @@ export interface NotificationActivity {
   notificationId?: number;
   appId?: string;
   appName?: string;
+  iconUrl?: string;
   launchArgs?: string;
   title?: string;
   body?: string;

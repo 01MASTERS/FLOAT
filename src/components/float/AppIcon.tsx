@@ -23,15 +23,23 @@ function loadIcon(appId: string): Promise<string | null> {
 interface AppIconProps {
   appId?: string;
   appName?: string;
+  iconUrl?: string;
   size?: number;
   className?: string;
 }
 
 /** The sending app's logo, falling back to its initial on a tinted tile. */
-export const AppIcon: React.FC<AppIconProps> = ({ appId, appName, size = 20, className = "" }) => {
-  const [url, setUrl] = useState<string | null>(() => (appId ? cache.get(appId) ?? null : null));
+export const AppIcon: React.FC<AppIconProps> = ({ appId, appName, iconUrl, size = 20, className = "" }) => {
+  const [url, setUrl] = useState<string | null>(() => {
+    if (iconUrl) return iconUrl;
+    return appId ? cache.get(appId) ?? null : null;
+  });
 
   useEffect(() => {
+    if (iconUrl) {
+      setUrl(iconUrl);
+      return;
+    }
     if (!appId) {
       setUrl(null);
       return;
@@ -47,7 +55,7 @@ export const AppIcon: React.FC<AppIconProps> = ({ appId, appName, size = 20, cla
     return () => {
       cancelled = true;
     };
-  }, [appId]);
+  }, [appId, iconUrl]);
 
   const style = { width: size, height: size, borderRadius: Math.round(size * 0.28) };
   if (url) {

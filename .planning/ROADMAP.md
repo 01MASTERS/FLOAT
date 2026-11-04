@@ -1,88 +1,86 @@
-# Roadmap: FLOAT Calendar & Agenda Expansion
+# Roadmap: FLOAT - Calendar, Tasks & Sizing Expansion
 
 ## Overview
 
-Expand FLOAT's desktop island with comprehensive multi-feed calendar support, birthday celebrations, and a unified agenda timeline. We start by building the native Rust multi-feed engine with recurrence and birthday detection, expose multi-calendar configuration in Settings, construct a dedicated Surface Agenda tab that merges calendar events with local tasks, and finish with smart Home line prioritization and one-click navigation.
+Expand FLOAT into a full-featured desktop calendar and productivity companion across 3 coarse phases. Phase 1 fixes the native Rust parsing engine for all-day events and annual recurring birthdays, adds `VTODO` Google Tasks parsing, and enables multi-feed URL configuration. Phase 2 introduces the dedicated Calendar/Agenda tab on `FloatSurface` alongside the closest-event display on the Home clock line. Phase 3 implements notch alerts for starting events and morning birthdays, double-click inline task editing, and scales FLOAT down to 85%.
 
 ## Phases
 
-- [ ] **Phase 1: Native Multi-Feed Engine & Birthday Parsing** - Concurrent multi-feed ICS fetching, per-feed caching, local all-day event alignment, and birthday classification in Rust.
-- [ ] **Phase 2: Multi-Calendar Feed Settings & Migration** - Settings store expansion, automatic migration from single calendarUrl, and feed management UI with colors and labels.
-- [ ] **Phase 3: Surface Agenda View & Unified Timeline** - Dedicated Agenda tab on FloatSurface featuring today's birthdays banner, chronological event stream, and local task integration.
-- [ ] **Phase 4: Smart Home Line Prioritization & Badges** - Intelligent ranking of meetings, birthdays, and tasks on the compact Home bar with distinct badges and click routing to Agenda.
+- [x] **Phase 1: Native Calendar Engine & Multi-Feed Aggregation** - Fix all-day/birthday recurrence parsing, extract tasks, and support multiple ICS feeds in Settings. (completed 2026-10-30)
+- [x] **Phase 2: Dedicated Calendar Surface Tab & Home Line Closest Event** - Build the full Agenda view on FloatSurface and show the closest event on the Home line with click navigation. (completed 2026-10-30)
+- [x] **Phase 3: Notch Alerts, Inline Task Editing & 85% Sizing** - Add notch reminder pills, double-click task editing in TasksView, and scale FLOAT to 85%. (completed 2026-10-30)
 
 ## Phase Details
 
-### Phase 1: Native Multi-Feed Engine & Birthday Parsing
-**Goal**: Overhaul Rust backend to fetch multiple ICS feeds concurrently, cache per-feed, correctly handle all-day events in local time, and detect birthdays.
+### Phase 1: Native Calendar Engine & Multi-Feed Aggregation
+
+**Goal**: Overhaul Rust calendar parser to handle all-day events (`VALUE=DATE`), annual recurring birthdays (`rrule`), Google Tasks (`VTODO`), remove the 3-event limit, and allow configuring multiple calendar URLs in Settings.
 **Mode**: mvp
 **Depends on**: Nothing (first phase)
-**Requirements**: [PARSE-01, PARSE-02, PARSE-03, PARSE-04]
+**Requirements**: CAL-01, CAL-02, CAL-03, CAL-04
 **Success Criteria** (what must be TRUE):
-  1. Rust command `get_calendar_events_multi` accepts a list of feeds and returns merged, deduplicated, sorted events.
-  2. All-day events (birthdays, holidays) align to local date boundaries rather than shifting across days due to UTC offsets.
-  3. Recurring yearly events (birthdays) and periodic events expand reliably within a 30-day window without infinite loops.
-  4. Birthdays and anniversaries are identified and tagged with `isBirthday: true`.
-**Plans**: TBD
+  1. All-day events and annual recurring birthdays from Google Calendar feeds parse and expand properly without errors.
+  2. Google Tasks (`VTODO`) are parsed and extracted with due dates and completion states.
+  3. Settings view allows configuring, labeling, and persisting multiple calendar URLs under one account.
+  4. Rust backend aggregates events from all configured feeds within the 30-day horizon (up to 50 events).
+
+**Plans**: 2/2 plans complete
 
 Plans:
-- [ ] 01-01: Multi-feed concurrent fetch, per-feed cache table, and IPC command in `src-tauri/src/calendar.rs`.
-- [ ] 01-02: All-day date normalization, RRULE horizon expansion, and birthday/anniversary keyword recognition.
+**Wave 1**
+- [x] 01-01: Update Rust backend (`calendar.rs`) with `VALUE=DATE` normalization, `VTODO` parsing, and multi-feed aggregation.
 
-### Phase 2: Multi-Calendar Feed Settings & Migration
-**Goal**: Enable users to configure, label, color-code, and toggle multiple ICS feeds in Settings with automatic migration of existing configuration.
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 01-02: Update Settings UI and Platform Abstraction Layer to configure and persist multiple calendar feed URLs.
+
+### Phase 2: Dedicated Calendar Surface Tab & Home Line Closest Event
+
+**Goal**: Provide a dedicated Calendar / Agenda tab on `FloatSurface` with chronological grouping and distinct badges, while surfacing the single closest event on the Home clock line with direct click navigation.
 **Mode**: mvp
 **Depends on**: Phase 1
-**Requirements**: [FEED-01, FEED-02, FEED-03]
+**Requirements**: CAL-05, CAL-06, CAL-07, NOTCH-01, NOTCH-02
 **Success Criteria** (what must be TRUE):
-  1. Existing single `calendarUrl` setting is automatically migrated to the `calendarFeeds` array without data loss.
-  2. User can add new feeds with a custom name (e.g. "Personal", "Work", "Birthdays"), URL, and color accent.
-  3. User can toggle individual feeds on or off, edit them, or delete them in `FloatSettingsView`.
-**Plans**: TBD
+  1. Users can open a dedicated Calendar tab on `FloatSurface` showing upcoming events grouped into Today, Tomorrow, and Later sections.
+  2. Calendar items display distinct visual badges and icons (🎂 Birthdays, 📅 Meetings, 📋 Tasks).
+  3. Compact Home line dynamically surfaces the closest upcoming or ongoing event or today's birthday/task.
+  4. Clicking the Home event chip immediately opens the Calendar tab.
+
+**Plans**: 2/2 plans complete
 
 Plans:
-- [ ] 02-01: Extend `FloatSettings` schema and storage migration in `src/services/settings.ts`.
-- [ ] 02-02: Build multi-feed management UI with color palette and validation in `FloatSettingsView.tsx`.
+**Wave 1**
+- [x] 02-01: Create `CalendarView.tsx` and integrate it into `FloatSurface.tsx` with date sections and category tags.
 
-### Phase 3: Surface Agenda View & Unified Timeline
-**Goal**: Provide a full-featured Agenda tab on FloatSurface that unifies calendar events, prominent birthday celebrations, and local tasks into a clean daily briefing.
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 02-02: Connect Home line in `HomeView.tsx` to surface closest event with click-to-open Calendar navigation.
+
+### Phase 3: Notch Alerts, Inline Task Editing & 85% Sizing
+
+**Goal**: Add notch alerts for starting events and morning birthdays, enable double-click inline title editing for tasks in `TasksView`, and scale the overall FLOAT overlay and hit regions to 85%.
 **Mode**: mvp
 **Depends on**: Phase 2
-**Requirements**: [AGENDA-01, AGENDA-02, AGENDA-03, AGENDA-04]
+**Requirements**: NOTCH-03, TASK-01, TASK-02
 **Success Criteria** (what must be TRUE):
-  1. A dedicated "Agenda" tab appears in the Surface navigation bar with an icon.
-  2. Today's birthdays are displayed prominently at the top with celebratory 🎂 badge and styling.
-  3. Upcoming calendar events and pending local tasks from `tasksStore` are chronologically interleaved into a single unified timeline.
-  4. Events are grouped cleanly by day (Today, Tomorrow, Later This Week) with feed color dots.
-**Plans**: TBD
+  1. Notch/pill briefly pops up an activity alert when an event is starting or for a birthday in the morning.
+  2. Double-clicking any task title in `TasksView` turns it into an inline editable input that saves on Enter/blur and cancels on Escape.
+  3. Overall FLOAT dimensions (notch, surface, split bubble) and native hit-test click-through regions scale to 85% with pixel-perfect cursor pass-through.
+
+**Plans**: 2/2 plans complete
 
 Plans:
-- [ ] 03-01: Build unified `useAgenda` hook combining multi-feed events and local tasks.
-- [ ] 03-02: Implement `AgendaView` component with birthday highlights, day groupings, and surface tab integration.
+**Wave 1**
+- [x] 03-01: Add `CalendarAlertActivity` to `useActivities.ts` and double-click inline title editing to `TasksView.tsx`.
 
-### Phase 4: Smart Home Line Prioritization & Badges
-**Goal**: Dynamically prioritize the most critical item on the compact Home line under the notch clock/player with distinct badges and one-click routing to the Agenda view.
-**Mode**: mvp
-**Depends on**: Phase 3
-**Requirements**: [HOME-01, HOME-02, HOME-03]
-**Success Criteria** (what must be TRUE):
-  1. Home line intelligently selects the top item: ongoing meeting > meeting starting in <60m > today's birthday > later meeting > next pending task.
-  2. Home line displays distinct badges/emojis for birthdays (🎂), meetings (colored dot), and tasks (checkbox icon).
-  3. Clicking on the event chip on the Home line navigates directly to the Surface Agenda view tab.
-**Plans**: TBD
-
-Plans:
-- [ ] 04-01: Implement prioritization ranking algorithm in `HomeLine` with birthday, meeting, and task badges.
-- [ ] 04-02: Wire click-to-open navigation from Home line directly to the Agenda tab on FloatSurface.
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 03-02: Implement 85% proportional scaling across `FloatShell.tsx`, CSS variables, and hit-testing rectangles.
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4
+Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Native Multi-Feed Engine & Birthday Parsing | 0/2 | Not started | - |
-| 2. Multi-Calendar Feed Settings & Migration | 0/2 | Not started | - |
-| 3. Surface Agenda View & Unified Timeline | 0/2 | Not started | - |
-| 4. Smart Home Line Prioritization & Badges | 0/2 | Not started | - |
+| 1. Native Calendar Engine & Multi-Feed Aggregation | 2/2 | Complete    | 2026-10-30 |
+| 2. Dedicated Calendar Surface Tab & Home Line Closest Event | 2/2 | Complete    | 2026-10-30 |
+| 3. Notch Alerts, Inline Task Editing & 85% Sizing | 2/2 | Complete    | 2026-10-30 |

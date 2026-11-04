@@ -19,6 +19,8 @@ pub struct NotificationItem {
     /// AppUserModelId of the sender; key for `get_app_icon`.
     #[serde(rename = "appId", skip_serializing_if = "Option::is_none")]
     pub app_id: Option<String>,
+    #[serde(rename = "iconUrl", skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
     #[serde(rename = "launchArgs", skip_serializing_if = "Option::is_none")]
     pub launch_args: Option<String>,
 }
@@ -37,6 +39,8 @@ pub struct NotificationPresencePayload {
     pub initial_items: Option<Vec<NotificationItem>>,
     #[serde(rename = "appName", skip_serializing_if = "Option::is_none")]
     pub app_name: Option<String>,
+    #[serde(rename = "iconUrl", skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -90,20 +94,148 @@ fn extract_launch_attribute(xml: &str) -> Option<String> {
     None
 }
 
-fn get_toast_launch_args_from_db(notification_id: u32) -> Option<String> {
-    let local_app_data = std::env::var("LOCALAPPDATA").ok()?;
+fn urlencoding_decode(s: &str) -> String {
+    let mut bytes = Vec::new();
+    let mut chars = s.as_bytes().iter();
+    while let Some(&b) = chars.next() {
+        if b == b'%' {
+            if let (Some(&h1), Some(&h2)) = (chars.next(), chars.next()) {
+                let hex_str = [h1, h2];
+                if let Ok(hex_val) = std::str::from_utf8(&hex_str) {
+                    if let Ok(byte) = u8::from_str_radix(hex_val, 16) {
+                        bytes.push(byte);
+                        continue;
+                    }
+                }
+                bytes.push(b'%');
+                bytes.push(h1);
+                bytes.push(h2);
+            } else {
+                bytes.push(b'%');
+            }
+        } else if b == b'+' {
+            bytes.push(b' ');
+        } else {
+            bytes.push(b);
+        }
+    }
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
+fn extract_logo_override(xml: &str) -> Option<String> {
+    let mut search_slice = xml;
+    while let Some(img_idx) = search_slice.find("<image") {
+        let tag_rest = &search_slice[img_idx..];
+        let tag_end = match tag_rest.find('>') {
+            Some(idx) => idx,
+            None => break,
+        };
+        let tag_content = &tag_rest[..tag_end];
+
+        if tag_content.contains("placement=\"appLogoOverride\"")
+            || tag_content.contains("placement='appLogoOverride'")
+        {
+            for src_attr in &["src=\"", "src='"] {
+                if let Some(src_pos) = tag_content.find(src_attr) {
+                    let quote_char = if src_attr.ends_with('"') { '"' } else { '\'' };
+                    let rest = &tag_content[src_pos + src_attr.len()..];
+                    if let Some(end) = rest.find(quote_char) {
+                        let src_val = decode_xml_entities(&rest[..end]);
+                        if !src_val.trim().is_empty() {
+                            return Some(src_val);
+                        }
+                    }
+                }
+            }
+        }
+        search_slice = &tag_rest[tag_end..];
+    }
+    None
+}
+
+fn logo_uri_to_data_url_and_path(uri: &str) -> (Option<String>, Option<String>) {
+    let clean = uri.trim();
+    if clean.starts_with("data:") || clean.starts_with("http://") || clean.starts_with("https://") {
+        return (Some(clean.to_string()), None);
+    }
+
+    let file_path = if let Some(stripped) = clean.strip_prefix("file:///") {
+        urlencoding_decode(stripped)
+    } else if let Some(stripped) = clean.strip_prefix("file://") {
+        urlencoding_decode(stripped)
+    } else {
+        clean.to_string()
+    };
+
+    let normalized = file_path.replace('/', "\\");
+    let path = std::path::Path::new(&normalized);
+    if path.is_file() {
+        if let Ok(bytes) = std::fs::read(path) {
+            use base64::engine::general_purpose::STANDARD;
+            use base64::Engine;
+            let b64 = STANDARD.encode(&bytes);
+            let lower = normalized.to_lowercase();
+            let mime = if lower.ends_with(".png") {
+                "image/png"
+            } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+                "image/jpeg"
+            } else if lower.ends_with(".ico") {
+                "image/x-icon"
+            } else if lower.ends_with(".svg") {
+                "image/svg+xml"
+            } else {
+                "image/png"
+            };
+            return (Some(format!("data:{};base64,{}", mime, b64)), Some(normalized));
+        }
+    }
+
+    (None, Some(normalized))
+}
+
+#[derive(Default, Debug)]
+pub struct ToastDbMetadata {
+    pub launch_args: Option<String>,
+    pub icon_url: Option<String>,
+    pub logo_file_path: Option<String>,
+}
+
+fn get_toast_metadata_from_db(notification_id: u32) -> ToastDbMetadata {
+    let mut meta = ToastDbMetadata::default();
+    let local_app_data = match std::env::var("LOCALAPPDATA") {
+        Ok(v) => v,
+        Err(_) => return meta,
+    };
     let db_path = format!("{}\\Microsoft\\Windows\\Notifications\\wpndatabase.db", local_app_data);
 
-    let conn = rusqlite::Connection::open_with_flags(
+    let conn = match rusqlite::Connection::open_with_flags(
         &db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-    ).ok()?;
+    ) {
+        Ok(c) => c,
+        Err(_) => return meta,
+    };
 
-    let mut stmt = conn.prepare("SELECT Payload FROM Notification WHERE Id = ?1 LIMIT 1").ok()?;
-    let payload_bytes: Vec<u8> = stmt.query_row([notification_id], |row| row.get(0)).ok()?;
-    let xml_str = String::from_utf8(payload_bytes).ok()?;
+    let mut stmt = match conn.prepare("SELECT Payload FROM Notification WHERE Id = ?1 LIMIT 1") {
+        Ok(s) => s,
+        Err(_) => return meta,
+    };
 
-    extract_launch_attribute(&xml_str)
+    let payload_bytes: Vec<u8> = match stmt.query_row([notification_id], |row| row.get(0)) {
+        Ok(b) => b,
+        Err(_) => return meta,
+    };
+
+    if let Ok(xml_str) = String::from_utf8(payload_bytes) {
+        meta.launch_args = extract_launch_attribute(&xml_str);
+        if let Some(logo_uri) = extract_logo_override(&xml_str) {
+            let (data_url, file_path) = logo_uri_to_data_url_and_path(&logo_uri);
+            meta.icon_url = data_url;
+            meta.logo_file_path = file_path;
+        }
+    }
+
+    meta
 }
 
 fn parse_guid(s: &str) -> Option<windows::core::GUID> {
@@ -184,15 +316,187 @@ fn resolve_toast_activator_clsid(app_id: &str) -> Option<windows::core::GUID> {
     None
 }
 
+fn extract_exe_path_from_command(cmd: &str) -> Option<std::path::PathBuf> {
+    let clean = cmd.trim();
+    if clean.starts_with('"') {
+        let rest = &clean[1..];
+        if let Some(end) = rest.find('"') {
+            let p = std::path::PathBuf::from(&rest[..end]);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    } else if let Some(space_idx) = clean.find(' ') {
+        let p = std::path::PathBuf::from(&clean[..space_idx]);
+        if p.is_file() {
+            return Some(p);
+        }
+    } else {
+        let p = std::path::PathBuf::from(clean);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn resolve_protocol_app(protocol: &str) -> Option<(String, Option<String>)> {
+    use windows::Win32::System::Registry::{RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CLASSES_ROOT, KEY_READ, REG_SZ};
+    use windows::core::PCWSTR;
+
+    let subkey = format!("{}\\\\shell\\\\open\\\\command\0", protocol);
+    let subkey_wide: Vec<u16> = subkey.encode_utf16().collect();
+    let mut hkey = HKEY::default();
+    unsafe {
+        if RegOpenKeyExW(HKEY_CLASSES_ROOT, PCWSTR(subkey_wide.as_ptr()), 0, KEY_READ, &mut hkey).is_ok() {
+            let mut buf = [0u16; 512];
+            let mut len = (buf.len() * 2) as u32;
+            let mut typ = REG_SZ;
+            if RegQueryValueExW(hkey, PCWSTR(std::ptr::null()), None, Some(&mut typ), Some(buf.as_mut_ptr() as *mut _), Some(&mut len)).is_ok() {
+                let end_idx = (len as usize / 2).saturating_sub(1);
+                let cmd = String::from_utf16_lossy(&buf[..end_idx]);
+                if let Some(exe_path) = extract_exe_path_from_command(&cmd) {
+                    if let Some(stem) = exe_path.file_stem() {
+                        let name = stem.to_string_lossy().to_string();
+                        if name.eq_ignore_ascii_case("Antigravity IDE") || name.eq_ignore_ascii_case("Antigravity") {
+                            return Some(("Antigravity IDE".to_string(), Some("Google.AntigravityIDE".to_string())));
+                        }
+                        return Some((name.clone(), Some(name)));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn extract_protocol_scheme(launch_args: &str) -> Option<String> {
+    let clean = launch_args.trim();
+    if let Some(pos) = clean.find("://") {
+        let scheme = &clean[..pos];
+        if !scheme.is_empty() && !scheme.contains(' ') && !scheme.contains('/') {
+            return Some(scheme.to_lowercase());
+        }
+    } else if let Some(pos) = clean.find(':') {
+        let scheme = &clean[..pos];
+        if !scheme.is_empty() && !scheme.contains(' ') && !scheme.contains('/') && !scheme.contains('=') {
+            return Some(scheme.to_lowercase());
+        }
+    }
+    None
+}
+
+pub fn find_start_menu_shortcut(app_name: &str) -> Option<std::path::PathBuf> {
+    let clean = app_name.trim().to_lowercase();
+    if clean.is_empty() || clean == "app" {
+        return None;
+    }
+
+    let mut search_dirs = Vec::new();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        search_dirs.push(std::path::PathBuf::from(appdata).join("Microsoft\\Windows\\Start Menu\\Programs"));
+    }
+    if let Ok(progdata) = std::env::var("ProgramData") {
+        search_dirs.push(std::path::PathBuf::from(progdata).join("Microsoft\\Windows\\Start Menu\\Programs"));
+    }
+
+    let mut queue = search_dirs;
+    while let Some(dir) = queue.pop() {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    queue.push(path);
+                } else if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if ext.to_string_lossy().eq_ignore_ascii_case("lnk") {
+                            let file_stem = path.file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+                            if file_stem == clean || file_stem.contains(&clean) || clean.contains(&file_stem) {
+                                return Some(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn disambiguate_app_sender(
+    raw_app_id: Option<&str>,
+    raw_app_name: &str,
+    launch_args: Option<&str>,
+    logo_file_path: Option<&str>,
+    title: &str,
+) -> (Option<String>, String) {
+    let raw_id_lower = raw_app_id.unwrap_or("").to_lowercase();
+    let raw_name_lower = raw_app_name.to_lowercase();
+    let is_generic_host = raw_id_lower.contains("visualstudiocode")
+        || raw_id_lower.starts_with("electron.app.")
+        || raw_name_lower == "visual studio code"
+        || raw_name_lower == "electron"
+        || raw_name_lower == "app";
+
+    // 1. Check protocol in launch_args
+    if let Some(args) = launch_args {
+        if let Some(scheme) = extract_protocol_scheme(args) {
+            let ignored = ["http", "https", "mailto", "file", "ftp", "shell", "ms-windows-store", "bing", "edge"];
+            if !ignored.contains(&scheme.as_str()) {
+                if scheme == "antigravity-ide" || scheme == "antigravity" {
+                    return (Some("Google.AntigravityIDE".to_string()), "Antigravity IDE".to_string());
+                }
+                if let Some((resolved_name, resolved_id)) = resolve_protocol_app(&scheme) {
+                    return (resolved_id, resolved_name);
+                }
+            }
+        }
+    }
+
+    // 2. Check logo file path if from an upstream/generic host
+    if let Some(logo_path) = logo_file_path {
+        let logo_lower = logo_path.to_lowercase();
+        if logo_lower.contains("antigravity ide") || logo_lower.contains("antigravity") {
+            return (Some("Google.AntigravityIDE".to_string()), "Antigravity IDE".to_string());
+        }
+        if logo_lower.contains("cursor") {
+            return (Some("Cursor".to_string()), "Cursor".to_string());
+        }
+        if logo_lower.contains("windsurf") {
+            return (Some("Windsurf".to_string()), "Windsurf".to_string());
+        }
+        if logo_lower.contains("vscodium") {
+            return (Some("VSCodium".to_string()), "VSCodium".to_string());
+        }
+    }
+
+    // 3. Check title / prefix if from generic host
+    if is_generic_host {
+        let title_lower = title.to_lowercase();
+        if title_lower.starts_with("antigravity") || title_lower.contains("antigravity —") {
+            return (Some("Google.AntigravityIDE".to_string()), "Antigravity IDE".to_string());
+        }
+        if title_lower.starts_with("cursor") || title_lower.contains("cursor —") {
+            return (Some("Cursor".to_string()), "Cursor".to_string());
+        }
+        if title_lower.starts_with("windsurf") || title_lower.contains("windsurf —") {
+            return (Some("Windsurf".to_string()), "Windsurf".to_string());
+        }
+    }
+
+    // Fallback: keep original
+    (raw_app_id.map(|s| s.to_string()), raw_app_name.to_string())
+}
+
 fn extract_item(n: &windows::UI::Notifications::UserNotification) -> Option<NotificationItem> {
     let id = n.Id().ok()?;
     let app_info = n.AppInfo().ok();
-    let app_id = app_info
+    let raw_app_id = app_info
         .as_ref()
         .and_then(|info| info.AppUserModelId().ok())
         .map(|h| h.to_string())
         .filter(|s| !s.is_empty());
-    let app_name = app_info
+    let raw_app_name = app_info
         .as_ref()
         .and_then(|info| info.DisplayInfo().ok())
         .and_then(|disp| disp.DisplayName().ok())
@@ -225,7 +529,18 @@ fn extract_item(n: &windows::UI::Notifications::UserNotification) -> Option<Noti
         }
     }
 
-    let launch_args = get_toast_launch_args_from_db(id);
+    let toast_meta = get_toast_metadata_from_db(id);
+    let launch_args = toast_meta.launch_args;
+    let icon_url = toast_meta.icon_url;
+    let logo_file_path = toast_meta.logo_file_path.as_deref();
+
+    let (app_id, app_name) = disambiguate_app_sender(
+        raw_app_id.as_deref(),
+        &raw_app_name,
+        launch_args.as_deref(),
+        logo_file_path,
+        &title,
+    );
 
     let timestamp = n.CreationTime()
         .map(|dt| {
@@ -251,6 +566,7 @@ fn extract_item(n: &windows::UI::Notifications::UserNotification) -> Option<Noti
         body: body_trunc,
         timestamp,
         app_id,
+        icon_url,
         launch_args,
     })
 }
@@ -260,6 +576,7 @@ fn added_payload(item: Option<NotificationItem>) -> NotificationPresencePayload 
         has_notification: true,
         is_new: true,
         app_name: item.as_ref().map(|i| i.app_name.clone()),
+        icon_url: item.as_ref().and_then(|i| i.icon_url.clone()),
         title: item.as_ref().map(|i| i.title.clone()),
         body: item.as_ref().map(|i| i.body.clone()),
         item,
@@ -276,6 +593,7 @@ fn removed_payload(id: u32, remaining: usize) -> NotificationPresencePayload {
         removed_id: Some(id),
         initial_items: None,
         app_name: None,
+        icon_url: None,
         title: None,
         body: None,
     }
@@ -416,6 +734,7 @@ async fn setup_notification_listener(app: AppHandle) -> Result<(), Box<dyn std::
                 removed_id: None,
                 initial_items: Some(initial_items),
                 app_name: first_item.as_ref().map(|i| i.app_name.clone()),
+                icon_url: first_item.as_ref().and_then(|i| i.icon_url.clone()),
                 title: first_item.as_ref().map(|i| i.title.clone()),
                 body: first_item.as_ref().map(|i| i.body.clone()),
             };
@@ -540,16 +859,27 @@ pub fn open_notification_app(
         }
     }
 
-    // 2. If launch_args is a protocol URI (e.g. whatsapp://, slack://, discord://, spotify:, http://, https://, etc.)
+    // 2. If launch_args is a protocol URI (e.g. antigravity-ide://, whatsapp://, slack://, discord://, spotify:, http://, https://, etc.)
     if (args_str.contains("://") || (args_str.contains(':') && !args_str.contains(' ') && !args_str.contains('=')))
         && !args_str.starts_with("shell:")
     {
+        dlog!("[NOTIFICATIONS] Launching protocol URI via explorer: {}", args_str);
         if std::process::Command::new("explorer.exe").arg(args_str).spawn().is_ok() {
             return Ok(());
         }
     }
 
-    // 3. Try IApplicationActivationManager::ActivateApplication with args
+    // 3. Try Start Menu shortcut matching app_name
+    if let Some(ref name) = app_name {
+        if let Some(shortcut) = find_start_menu_shortcut(name) {
+            dlog!("[NOTIFICATIONS] Launching matching Start Menu shortcut: {:?}", shortcut);
+            if std::process::Command::new("explorer.exe").arg(&shortcut).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+    }
+
+    // 4. Try IApplicationActivationManager::ActivateApplication with args
     if !clean_aumid.is_empty() {
         unsafe {
             use windows::Win32::System::Com::{

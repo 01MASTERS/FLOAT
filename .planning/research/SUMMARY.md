@@ -1,37 +1,51 @@
 # Project Research Summary
 
+**Project:** FLOAT - Calendar, Tasks & Sizing Expansion  
+**Domain:** Desktop Productivity Overlay (Dynamic Island / Notch) with Calendar & Tasks Integration  
+**Researched:** 2026-10-30  
+**Confidence:** HIGH  
+
+## Executive Summary
+
+FLOAT is a sleek Windows Dynamic Island / Notch desktop companion. The user requested expanding calendar and task awareness: currently, only certain timed events (e.g. flight/ticket confirmations) show up, while manual events, all-day birthdays, and tasks from their Google Calendar are missing. Furthermore, the user requested a separated, dedicated Calendar tab on the expanded surface, displaying the closest event on the Home clock line, morning/start notch alerts for birthdays and events, double-click inline task editing, and reducing FLOAT's overall dimensions to 85%.
+
+Our technical research identified the precise root causes:
+1. Google Calendar exports all-day events and birthdays using date-only strings (`VALUE=DATE:YYYYMMDD`), which the current Rust `rrule` recurrence parser rejects as invalid grammar and silently drops. Normalizing date-only start strings to local day-start datetimes solves this immediately.
+2. In Google Calendar, Google Tasks and Contact Birthdays often reside on separate ICS feed URLs from the same Google account. Adding multi-feed aggregation in Settings and Rust allows seamless consolidation.
+3. Supporting `BEGIN:VTODO` alongside `BEGIN:VEVENT` brings to-dos from Google Calendar feeds into FLOAT.
+4. Implementing the dedicated Calendar tab, double-click task editing, and 85% scale provides a cohesive, high-density desktop experience.
+
 ## Key Findings
 
-### Stack & Dependencies
-- The project already has `rrule = "0.14"` and `chrono = "0.4"` in `src-tauri/Cargo.toml` and `ureq` for HTTP fetching. No new external backend dependencies are needed.
-- Frontend uses React 19, TypeScript, and Lucide React. No third-party calendar widget library is required; native `Intl.DateTimeFormat` and clean custom components provide maximum performance and full styling control for FLOAT's liquid glass design.
+### Recommended Stack
+- Rust `rrule` (0.14) & `chrono` (0.4) for robust RFC 5545 recurrence and all-day parsing.
+- Rust `ureq` (3.0) for lightweight concurrent feed polling.
+- React 19 external stores (`useSyncExternalStore`) for reactive task and calendar state.
+- Lucide React for consistent icons (`Cake`, `Calendar`, `CheckSquare`).
 
-### Architecture
-- The calendar engine in Rust (`src-tauri/src/calendar.rs`) must be upgraded from single-URL caching to a concurrent multi-feed architecture with per-feed TTL caching (`Mutex<HashMap<String, ...>>`).
-- Events must be normalized with feed metadata (`feed_id`, `feed_name`, `feed_color`), event classification (`is_birthday`, `all_day`), and precise local timestamps.
-- Frontend will expose a unified hook that merges multi-feed calendar events and local tasks into a single chronological stream.
+### Expected Features
+- **Table Stakes:**
+  - Robust all-day & birthday event parsing (no dropped events).
+  - Separated Calendar / Agenda tab on `FloatSurface` with chronological date sections.
+  - Closest event display on the compact Home clock line with click-to-calendar routing.
+  - Double-click inline task title editing in `TasksView`.
+  - 85% proportional scaling across notch, surface, and hit-testing rectangles.
+- **Differentiators:**
+  - Notch alerts / morning reminders for upcoming meetings and birthdays.
+  - Distinct visual badges (🎂 Birthday, 📅 Meeting, 📋 Task).
+  - Multi-feed URL configuration for secondary Google Calendar feeds.
 
-### User Experience
-- **Home Bar**: Preserves FLOAT's minimalist aesthetic by showing the single most relevant active event (in-progress meeting, soon-to-start meeting, today's birthday banner, or next task).
-- **Surface Agenda View**: Adds a dedicated tab on `FloatSurface` for browsing today's schedule, birthdays with 🎂 badges, and upcoming days with clear time grouping.
-- **Settings**: Allows adding multiple calendar feeds with names, colors, and easy enable/disable toggles.
+### Architecture Approach
+- **Native Engine (`calendar.rs`):** Parallel ICS fetcher, `VALUE=DATE` normalizer, `VTODO` parser, and 30-day recurrence expander.
+- **Frontend State (`calendarStore.ts` & `tasksStore.ts`):** Lightweight external store sync, reactive sorting, and inline editing.
+- **Presentation (`FloatShell.tsx`, `CalendarView.tsx`, `HomeView.tsx`):** 85% scale geometry, dedicated agenda tab, closest-event priority arbitration, and notch alert pills.
 
-## Implications for Roadmap
+### Critical Pitfalls
+- `rrule` date-only parsing failure: Must normalize `VALUE=DATE` to `YYYYMMDDT000000`.
+- 85% scale hit-test misalignment: Scale base geometry values directly rather than applying unconstrained CSS scaling to ensure DWM hit regions match pixel for pixel.
+- Slow feed timeouts: Apply strict 10s timeouts per feed to prevent one unresponsive URL from blocking others.
 
-1. **Phase 1: Multi-Feed Native Engine & ICS Parser Overhaul**
-   - Refactor `src-tauri/src/calendar.rs` to support `get_calendar_events_multi`.
-   - Implement concurrent per-feed fetching, independent caching, all-day event local alignment, and birthday detection.
-2. **Phase 2: Multi-Calendar Configuration & Settings Management**
-   - Update settings store (`settings.ts`) with `calendarFeeds` array and migration from old `calendarUrl`.
-   - Build UI in `FloatSettingsView` to add, edit, test, color-code, and remove calendar feeds.
-3. **Phase 3: Surface Agenda View & Unified Timeline**
-   - Create `AgendaView` tab in `FloatSurface` displaying today's events, birthdays, and scheduled tasks.
-   - Interleave FLOAT local tasks with calendar events.
-4. **Phase 4: Smart Home Line Prioritization & Badges**
-   - Upgrade `HomeLine` to display birthdays, all-day events, and impending meetings with smart ranking.
-   - Add click-to-open interaction routing from Home line to the Agenda tab.
+---
+*Research summary for: FLOAT - Calendar & Agenda Expansion*  
+*Researched: 2026-10-30*  
 
-## Sources
-- RFC 5545 (iCalendar Specification)
-- `rrule` crate documentation and recurrence expansion patterns
-- Windows DWM / Tauri v2 performance considerations

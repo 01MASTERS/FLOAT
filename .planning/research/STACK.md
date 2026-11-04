@@ -1,42 +1,57 @@
-# Technology Stack: Multi-Calendar & Agenda Engine
+# Stack Research
 
-**Domain:** Windows Desktop Widget (Tauri v2 + Rust + React 19)  
-**Milestone:** Calendar & Agenda Expansion
+**Domain:** Desktop Productivity Overlay (Dynamic Island / Notch) with Calendar & Tasks Integration  
+**Researched:** 2026-10-30  
+**Confidence:** HIGH  
 
-## Existing Stack Foundations
+## Recommended Stack
 
-- **Native Backend:** Rust 1.80+, Tauri v2 (`src-tauri`)
-- **HTTP Client:** `ureq` v3 (already present, lightweight blocking agent configured with timeout and user agent)
-- **iCalendar & Recurrence:** `rrule` 0.14 and `chrono` 0.4 (already present in `src-tauri/Cargo.toml`)
-- **Frontend Framework:** React 19, TypeScript 5.8, Vite 7
-- **UI & Motion:** Framer Motion 13, Lucide React icons, vanilla CSS with CSS custom properties
-- **State Management:** `useSyncExternalStore` for reactive local persistence (`tasksStore.ts`, `settings.ts`)
+### Core Technologies
 
-## Evaluated Tech Additions & Upgrades
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| Rust (`rrule`) | 0.14 | iCalendar recurrence expansion | Official RFC 5545 compliant recurrence engine in Rust. High performance, zero allocations during evaluation, supports RRULE, EXDATE, and RDATE. |
+| Rust (`chrono`) | 0.4 | Date and time manipulation | Standard, robust timezone-aware date arithmetic in Rust. Handles naive dates, UTC conversions, and durations safely. |
+| Rust (`ureq`) | 3.0 | Lightweight synchronous HTTP client | Fast, minimal HTTP client with negligible footprint (no heavy async reqwest runtime needed for simple periodic feed fetching). |
+| React | 19.1 | UI Component & State Management | Powers the transparent WebView2 overlay. Uses `useSyncExternalStore` for flicker-free out-of-band store subscriptions. |
+| Framer Motion | 13.1 | Spring physics & layout morphing | Standard library for macOS-style notch squish physics, split bubble expansion, and smooth surface transitions. |
+| Lucide React | 1.55 | System Iconography | Lightweight, consistent vector icons matching desktop typography (`Calendar`, `Cake`, `CheckSquare`, `Clock`). |
 
-### 1. Multi-Feed Asynchronous Engine in Rust
-- **Current state:** Single-threaded sequential fetch with single-slot cache `Mutex<Option<(String, Instant, Vec<RawParsed>)>>`.
-- **Recommended evolution:**
-  - Per-feed cache table `Mutex<HashMap<String, (Instant, Vec<RawParsed>)>>` to prevent thrashing when polling multiple URLs.
-  - Multi-threaded or parallel fetch via `tauri::async_runtime::spawn_blocking` across feeds using `rayon` or `tokio::join_all` / standard scoped threads.
-  - Maintain zero additional heavyweight async runtime dependencies (keep using existing `ureq` + `tauri::async_runtime`).
+### Supporting Libraries & Patterns
 
-### 2. Recurrence & All-Day Horizon Expansion
-- **Current state:** Hardcoded `MAX_EVENTS = 3` and `all(2)` occurrences per rule.
-- **Recommended evolution:**
-  - Parameterize horizon: query a 7-day to 30-day window (`HORIZON_DAYS = 30`).
-  - Cap occurrences per rule safely at `all(10)` to prevent unbounded CPU execution on infinite rules, but collect up to 100 total upcoming events across feeds.
-  - Properly handle floating time zones (`Tz::Local`) for all-day events (birthdays, holidays) so they don't shift into previous/next day across UTC offsets.
+| Library / Tool | Version | Purpose | When to Use |
+|----------------|---------|---------|-------------|
+| Native Date API | Built-in | Calendar date grouping & formatting | Lightweight grouping (Today, Tomorrow, Upcoming) without adding heavy bloated calendar dependencies (e.g. FullCalendar). |
+| CSS Custom Properties | Native | Unified 85% UI scale factor | Apply a root `--float-scale: 0.85` variable across sizing tokens, SVG dimensions, and Framer Motion spring targets. |
+| `useSyncExternalStore` | React 19 | External Store Sync | For `tasksStore.ts` and `calendarStore.ts` to ensure multi-component reactivity without cascading re-renders. |
 
-### 3. Frontend Date & Agenda Rendering
-- **Recommended libraries:** None required; stick to native `Intl.DateTimeFormat` and native `Date` arithmetic.
-- **Iconography:** Lucide React (`Cake`, `Calendar`, `Clock`, `CheckSquare`, `MapPin`, `AlertCircle`).
+## Alternatives Considered
 
-## Summary of Decisions
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| `rrule` crate (Rust) | Frontend `rrule.js` | Only if Rust background tasks were unavailable. Rust background evaluation avoids blocking the JS UI thread and keeps memory usage minimal. |
+| Native `Date` + lightweight helpers | `date-fns` or `moment` | If complex locale manipulation were needed. For basic day diffing and time display, native `Intl` and `Date` avoid bundle bloat. |
+| ICS Multi-Feed Polling | Full Google Calendar OAuth2 API | If 2-way event editing/creation from FLOAT were required. Read-only ICS feeds require zero cloud infrastructure, no API quotas, and provide 100% user privacy. |
 
-| Layer | Component | Choice | Rationale |
-|-------|-----------|--------|-----------|
-| Backend | ICS Fetching | `ureq` + `tauri::async_runtime` | Already installed, zero bloat, solid timeout handling |
-| Backend | Recurrence Engine | `rrule` 0.14 + `chrono` 0.4 | Already in Cargo.toml, robust RFC 5545 RRULE parser |
-| Backend | Caching | `Mutex<HashMap<String, CacheEntry>>` | Independent TTL caching per calendar feed |
-| Frontend | Agenda State | Custom React hook + `tasksStore` integration | Unified timeline without external store bloat |
+## What NOT to Use
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| FullCalendar / React-Big-Calendar | Monolithic DOM trees (>300KB), heavy CSS conflicts, not designed for compact dynamic notch islands. | Clean custom `CalendarView.tsx` styled to match FLOAT's liquid glass design system. |
+| `reqwest` with full `tokio` multi-threaded runtime | Adds multi-megabyte binary bloat to Tauri executable for simple 10-minute HTTP feed fetches. | Lightweight `ureq` in dedicated worker threads. |
+| Hardcoded 3-event limit (`MAX_EVENTS`) | Drops subsequent meetings and obscures full daily agendas. | Dynamic/higher event horizon (20–50 events) with client-side date filtering. |
+
+## Stack Patterns by Variant
+
+**For All-Day Events & Birthdays:**
+- Normalize date-only `DTSTART;VALUE=DATE:YYYYMMDD` to `DTSTART:YYYYMMDDT000000` (local day start) before passing into `RRuleSet`.
+- Ensures yearly recurring rules (`FREQ=YEARLY`) expand properly into unix timestamps.
+
+**For Google Tasks (`VTODO`):**
+- Parse `BEGIN:VTODO ... END:VTODO` blocks extracting `SUMMARY`, `DUE`, and `STATUS:COMPLETED`.
+- Convert active tasks into `CalendarEvent` models tagged with `kind: "task"`.
+
+---
+*Stack research for: FLOAT - Calendar & Agenda Expansion*  
+*Researched: 2026-10-30*  
+

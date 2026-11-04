@@ -1,107 +1,77 @@
-# Architecture Design: Calendar & Agenda Subsystem
+# Architecture Research
 
-## High-Level Architecture Diagram
+**Domain:** Desktop Productivity Overlay (Dynamic Island / Notch) with Calendar & Tasks Integration  
+**Researched:** 2026-10-30  
+**Confidence:** HIGH  
+
+## Architecture Overview
 
 ```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                          React 19 Frontend                             │
-│                                                                        │
-│   ┌────────────────────┐   ┌───────────────────┐   ┌───────────────┐   │
-│   │     HomeView       │   │    AgendaView     │   │ FloatSettings │   │
-│   │ (Smart Home Line)  │   │(Chronological tab)│   │ (Feeds config)│   │
-│   └─────────▲──────────┘   └─────────▲─────────┘   └───────┬───────┘   │
-│             │                        │                     │           │
-│             └───────────┬────────────┘                     │           │
-│                         ▼                                  │           │
-│              useAgenda / useCalendarEvents                 │           │
-│           (Merges Feeds + Local Tasks Store)               │           │
-│                         │                                  │           │
-│                         ▼                                  │           │
-│           Platform Abstraction Layer (PAL)                 │           │
-│           `get_calendar_events_multi()`                    │           │
-└─────────────────────────┼──────────────────────────────────┼───────────┘
-                          │ IPC: invoke()                    │ Settings
-                          ▼                                  ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                      Tauri v2 Native Backend (Rust)                    │
-│                        `src-tauri/src/calendar.rs`                     │
-│                                                                        │
-│   ┌────────────────────────────────────────────────────────────────┐   │
-│   │               Command: `get_calendar_events_multi`             │   │
-│   │             Accepts: `Vec<CalendarFeedConfig>`                 │   │
-│   └──────────────────────────────┬─────────────────────────────────┘   │
-│                                  ▼                                     │
-│   ┌────────────────────────────────────────────────────────────────┐   │
-│   │                    Feed Cache (Mutex<HashMap>)                 │   │
-│   │      Key: URL | Value: (Instant, CachedRawEvents)              │   │
-│   └──────────────┬─────────────────────────────────┬───────────────┘   │
-│                  │ Cache Miss                      │ Cache Hit         │
-│                  ▼                                 ▼                   │
-│   ┌──────────────────────────────┐  ┌──────────────────────────────┐   │
-│   │ Async Network Fetch (ureq)   │  │ Recurrence Expander (rrule)  │   │
-│   │ Timeout 10s / RFC LineUnfold │  │ Window: [now - 1d .. +30d]   │   │
-│   └──────────────┬───────────────┘  └──────────────┬───────────────┘   │
-│                  ▼                                 ▼                   │
-│   ┌────────────────────────────────────────────────────────────────┐   │
-│   │          Event Normalizer & Birthday Classifier                │   │
-│   │     Tag: All-Day, Recurrence, Location, Birthday (🎂)          │   │
-│   └──────────────────────────────┬─────────────────────────────────┘   │
-│                                  ▼                                     │
-│   ┌────────────────────────────────────────────────────────────────┐   │
-│   │             Sorted Upcoming Unified Event List                 │   │
-│   └────────────────────────────────────────────────────────────────┘   │
-└────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            React 19 Frontend                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  FloatShell (85% Scale)                                                     │
+│   ├── FloatPill (Notch Alerts: Meeting starting, 🎂 Birthday)               │
+│   └── FloatSurface (Tabbed Command Center)                                  │
+│        ├── HomeView (Clock + Closest Event / Birthday Chip)                 │
+│        ├── CalendarView [NEW] (Chronological Agenda: Today, Tomorrow, etc.)  │
+│        ├── TasksView (Double-Click In-Place Title Editing)                  │
+│        └── FloatSettingsView (Multi-Feed Calendar URLs Configuration)       │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ PAL (`src/platform/index.ts`)
+                                       ▼ Tauri IPC
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            Rust Native Backend                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  `calendar.rs`                                                              │
+│   ├── Multi-Feed Concurrent Fetcher (`ureq` background threads)             │
+│   ├── RFC 5545 Unfolder & Event Parser (`VEVENT` & `VTODO`)                 │
+│   ├── Date Normalizer (`VALUE=DATE` → Local Day Start)                      │
+│   └── Recurrence Expander (`rrule::RRuleSet` expansion across 30-day window)│
+│  `window.rs`                                                                │
+│   └── 85% Scale-Aware Hit Testing & Click-Through Boundaries                │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Data Models
+## Component Boundaries & Data Contracts
 
-### 1. Settings Schema Extension (`src/services/settings.ts`)
+### 1. Multi-Feed Calendar Model (`src-tauri/src/calendar.rs`)
+- Expand `get_calendar_events` to accept either an array of URLs or query all configured feeds.
+- Cache events per-feed URL with individual timestamps.
+- Return structured `CalendarEvent` payloads:
+  ```rust
+  pub struct CalendarEvent {
+      pub id: String,
+      pub title: String,
+      pub start: i64,      // Unix ms
+      pub end: i64,        // Unix ms
+      pub all_day: bool,
+      pub kind: String,    // "meeting" | "birthday" | "task" | "all_day"
+      pub location: Option<String>,
+      pub feed_color: Option<String>,
+  }
+  ```
 
-```typescript
-export interface CalendarFeed {
-  id: string;
-  name: string;
-  url: string;
-  color: string; // hex or CSS accent color
-  enabled: boolean;
-}
+### 2. Frontend Calendar Store (`src/activities/calendarStore.ts`)
+- Use React 19 `useSyncExternalStore` pattern (matching `tasksStore.ts`).
+- Periodically poll native backend (every 5-10 minutes) or trigger on settings updates.
+- Export reactive hooks:
+  - `useUpcomingEvents()`: Full list for the Calendar tab.
+  - `useClosestEvent()`: Evaluated single closest event for the Home line.
 
-// FloatSettings adds:
-calendarFeeds: CalendarFeed[];
-```
+### 3. Notch Alert Activity Integration (`src/activities/useActivities.ts`)
+- Add `CalendarAlertActivity` to `Activity` discriminated union:
+  - Priority: High (`ActivityPriority.HIGH`), fires 5 minutes before meeting start or 9:00 AM on a contact's birthday.
+  - Dwell time: ~8 seconds, then collapses back to compact notch.
 
-### 2. Rust IPC Data Contract (`src-tauri/src/calendar.rs`)
+### 4. 85% Scale Uniform Architecture
+- Base dimension scaling in `src/components/float/FloatShell.tsx`:
+  - `NOTCH_IDLE_WIDTH = 196 * 0.85` (~166px)
+  - `NOTCH_IDLE_HEIGHT = 32 * 0.85` (~27px)
+  - `ACTIVITY_HEIGHT = 36 * 0.85` (~30px)
+- Hit testing: `setHitRegions` calculates exact bounding boxes based on the 85% scale, ensuring click-through precision in Windows DWM.
 
-```rust
-#[derive(Deserialize)]
-pub struct CalendarFeedConfig {
-    pub id: String,
-    pub name: String,
-    pub url: String,
-    pub color: String,
-}
+---
+*Architecture research for: FLOAT - Calendar & Agenda Expansion*  
+*Researched: 2026-10-30*  
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CalendarEvent {
-    pub id: String,
-    pub feed_id: String,
-    pub feed_name: String,
-    pub feed_color: String,
-    pub title: String,
-    pub start: i64,       // Unix timestamp ms
-    pub end: i64,         // Unix timestamp ms
-    pub all_day: bool,
-    pub is_birthday: bool,
-    pub location: Option<String>,
-}
-```
-
-## Concurrency & Performance Strategy
-
-1. **Independent Feed Caching:**
-   Cache is maintained per feed URL with a 10-minute TTL. Fetching is executed in parallel across feeds using `tauri::async_runtime::spawn_blocking`.
-2. **Aggressive Error Resilience:**
-   If one external calendar feed fails (e.g. temporary network error or offline), the backend logs a warning, returns cached data if available, and returns the successful feeds without failing the entire command.
-3. **Infinite Recurrence Shielding:**
-   Annual and weekly recurring rules without end limits (common for birthdays and recurring standups) are clamped to the evaluation horizon (`now - 1 day` to `now + 30 days`), and evaluation is capped per rule with `.all(10)`.
