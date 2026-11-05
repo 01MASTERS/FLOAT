@@ -289,6 +289,9 @@ pub fn get_power_state() -> Option<PowerPayload> {
 /// Current default audio output device.
 #[tauri::command]
 pub fn get_current_audio_device() -> Option<AudioDevicePayload> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
     let name = cpal::default_host().default_output_device().and_then(|d| d.name().ok())?;
     let lower = name.to_lowercase();
     let is_headphones = lower.contains("headphone")
