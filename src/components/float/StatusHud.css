@@ -40,6 +40,25 @@
   flex-shrink: 0;
 }
 
+.battery-hud.charging {
+  animation: batteryPop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes batteryPop {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.7;
+  }
+  60% {
+    transform: scale(1.03);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 .status-hud-icon.shelf,
 .status-hud-icon.bluetooth {
   color: #0a84ff;
@@ -159,6 +178,18 @@
   border-radius: 1.5px;
   background: var(--float-text-primary);
   transition: width 0.3s ease;
+}
+
+.status-hud-battery.charging .status-hud-cell {
+  border-color: rgba(52, 199, 89, 0.85);
+}
+
+.status-hud-battery.charging .status-hud-cell::after {
+  background: rgba(52, 199, 89, 0.85);
+}
+
+.status-hud-battery.charging .status-hud-percent {
+  color: #34c759;
 }
 
 .status-hud-battery.charging .status-hud-cell-fill {

@@ -423,6 +423,147 @@ pub fn find_start_menu_shortcut(app_name: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+/// Invokes Windows ShellExecuteW directly without spawning `explorer.exe` (which defaults
+/// to opening File Explorer if target resolution fails).
+pub fn win32_shell_open(target: &str, params: Option<&str>) -> bool {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::PCWSTR;
+
+    let target_wide: Vec<u16> = target.encode_utf16().chain(std::iter::once(0)).collect();
+    let verb_wide: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+    let params_wide: Option<Vec<u16>> = params.map(|p| p.encode_utf16().chain(std::iter::once(0)).collect());
+
+    unsafe {
+        let instance = ShellExecuteW(
+            None,
+            PCWSTR(verb_wide.as_ptr()),
+            PCWSTR(target_wide.as_ptr()),
+            params_wide.as_ref().map(|p| PCWSTR(p.as_ptr())).unwrap_or(PCWSTR::null()),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        );
+        (instance.0 as usize) > 32
+    }
+}
+
+/// Resolves a protocol URL's registered handler command line from the Windows Registry
+/// (HKCU\\Software\\Classes\\<scheme> or HKCR\\<scheme>).
+fn resolve_protocol_command(protocol_url: &str) -> Option<(std::path::PathBuf, Vec<String>)> {
+    let scheme = protocol_url.split(':').next()?;
+    if scheme.is_empty() || scheme.len() > 32 {
+        return None;
+    }
+
+    use windows::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER, HKEY_CLASSES_ROOT,
+        KEY_READ,
+    };
+    use windows::core::PCWSTR;
+
+    let subkeys = [
+        format!("Software\\Classes\\{}\\shell\\open\\command", scheme),
+        format!("{}\\shell\\open\\command", scheme),
+    ];
+    let root_keys = [HKEY_CURRENT_USER, HKEY_CLASSES_ROOT];
+
+    for (root, subkey) in root_keys.iter().zip(subkeys.iter()) {
+        let subkey_wide: Vec<u16> = subkey.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut hkey = HKEY::default();
+        unsafe {
+            if RegOpenKeyExW(*root, PCWSTR(subkey_wide.as_ptr()), 0, KEY_READ, &mut hkey).is_ok() {
+                let mut buf_size = 0u32;
+                if RegQueryValueExW(
+                    hkey,
+                    PCWSTR::null(),
+                    None,
+                    None,
+                    None,
+                    Some(&mut buf_size),
+                ).is_ok() && buf_size > 0 {
+                    let mut data = vec![0u16; (buf_size as usize / 2) + 1];
+                    if RegQueryValueExW(
+                        hkey,
+                        PCWSTR::null(),
+                        None,
+                        None,
+                        Some(data.as_mut_ptr() as *mut u8),
+                        Some(&mut buf_size),
+                    ).is_ok() {
+                        let _ = RegCloseKey(hkey);
+                        let cmd_str = String::from_utf16_lossy(&data)
+                            .trim_matches('\0')
+                            .trim()
+                            .to_string();
+                        if !cmd_str.is_empty() {
+                            return parse_protocol_cmd_str(&cmd_str, protocol_url);
+                        }
+                    }
+                }
+                let _ = RegCloseKey(hkey);
+            }
+        }
+    }
+    None
+}
+
+fn parse_protocol_cmd_str(raw: &str, protocol_url: &str) -> Option<(std::path::PathBuf, Vec<String>)> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    let (exe_path, remainder) = if raw.starts_with('"') {
+        let end_quote = raw[1..].find('"')?;
+        let exe = &raw[1..1 + end_quote];
+        let rem = raw[1 + end_quote + 1..].trim();
+        (std::path::PathBuf::from(exe), rem)
+    } else {
+        let parts: Vec<&str> = raw.splitn(2, ' ').collect();
+        (std::path::PathBuf::from(parts[0]), parts.get(1).copied().unwrap_or(""))
+    };
+
+    let mut tokens = Vec::new();
+    if !remainder.is_empty() {
+        let mut cur = String::new();
+        let mut in_quotes = false;
+        for c in remainder.chars() {
+            if c == '"' {
+                in_quotes = !in_quotes;
+            } else if c.is_whitespace() && !in_quotes {
+                if !cur.is_empty() {
+                    tokens.push(cur.clone());
+                    cur.clear();
+                }
+            } else {
+                cur.push(c);
+            }
+        }
+        if !cur.is_empty() {
+            tokens.push(cur);
+        }
+    }
+
+    let mut replaced = false;
+    let mut final_args = Vec::new();
+    for t in tokens {
+        if t == "%1" || t == "%L" {
+            final_args.push(protocol_url.to_string());
+            replaced = true;
+        } else if t.contains("%1") {
+            final_args.push(t.replace("%1", protocol_url));
+            replaced = true;
+        } else {
+            final_args.push(t);
+        }
+    }
+    if !replaced {
+        final_args.push(protocol_url.to_string());
+    }
+
+    Some((exe_path, final_args))
+}
+
 fn disambiguate_app_sender(
     raw_app_id: Option<&str>,
     raw_app_name: &str,
@@ -863,9 +1004,16 @@ pub fn open_notification_app(
     if (args_str.contains("://") || (args_str.contains(':') && !args_str.contains(' ') && !args_str.contains('=')))
         && !args_str.starts_with("shell:")
     {
-        dlog!("[NOTIFICATIONS] Launching protocol URI via explorer: {}", args_str);
-        if std::process::Command::new("explorer.exe").arg(args_str).spawn().is_ok() {
+        dlog!("[NOTIFICATIONS] Launching protocol URI: {}", args_str);
+        if win32_shell_open(args_str, None) {
+            dlog!("[NOTIFICATIONS] Successfully launched protocol URI via ShellExecuteW");
             return Ok(());
+        }
+        if let Some((exe_path, args)) = resolve_protocol_command(args_str) {
+            dlog!("[NOTIFICATIONS] Spawning protocol binary {:?} with args {:?}", exe_path, args);
+            if std::process::Command::new(&exe_path).args(&args).spawn().is_ok() {
+                return Ok(());
+            }
         }
     }
 
@@ -873,7 +1021,9 @@ pub fn open_notification_app(
     if let Some(ref name) = app_name {
         if let Some(shortcut) = find_start_menu_shortcut(name) {
             dlog!("[NOTIFICATIONS] Launching matching Start Menu shortcut: {:?}", shortcut);
-            if std::process::Command::new("explorer.exe").arg(&shortcut).spawn().is_ok() {
+            let shortcut_str = shortcut.to_string_lossy();
+            let params = if args_str.is_empty() { None } else { Some(args_str) };
+            if win32_shell_open(&shortcut_str, params) {
                 return Ok(());
             }
         }
@@ -908,19 +1058,19 @@ pub fn open_notification_app(
             }
         }
 
-        // Fallback: explorer.exe shell:AppsFolder\<aumid>
+        // Fallback: win32_shell_open shell:AppsFolder\<aumid>
         let target = format!("shell:AppsFolder\\{}", clean_aumid);
-        if std::process::Command::new("explorer.exe").arg(&target).spawn().is_ok() {
+        if win32_shell_open(&target, None) {
             return Ok(());
         }
     }
 
-    // 4. Fallback: app_name
+    // 5. Fallback: app_name
     if let Some(ref name) = app_name {
         let clean = name.trim();
         if !clean.is_empty() {
             let target = format!("shell:AppsFolder\\{}", clean);
-            let _ = std::process::Command::new("explorer.exe").arg(&target).spawn();
+            let _ = win32_shell_open(&target, None);
         }
     }
 

@@ -1079,6 +1079,10 @@ const FloatShell: React.FC = () => {
   } else if (primary?.kind === "calendarAlert") {
     const alertWidth = primary.alertType === "birthday" ? 280 : (primary.meetingLink ? 360 : 300);
     [islandWidth, islandHeight, bottomRadius] = [Math.max(pillWidth, alertWidth), 46, 20];
+  } else if (primary?.kind === "battery") {
+    [islandWidth, islandHeight, bottomRadius] = [Math.max(pillWidth, 275), 42, 21];
+  } else if (primary?.kind === "bluetooth") {
+    [islandWidth, islandHeight, bottomRadius] = [Math.max(pillWidth, 290), 42, 21];
   } else if (primary) {
     islandWidth = pillWidth + (isPreview ? PREVIEW_EXTRA_WIDTH : 0);
     islandHeight = isPreview ? PREVIEW_HEIGHT : ACTIVITY_HEIGHT;
@@ -1365,6 +1369,9 @@ const FloatShell: React.FC = () => {
 
     unlisteners.push(subscribeToBluetoothDevice(({ name, connected }) => {
       const isHeadphones = /headphone|headset|earphone|airpod|buds|wh-|wf-|freebuds|galaxy/i.test(name);
+      if (visualModeRef.current === "orb") {
+        transitionTo("compact", "bluetooth-activity");
+      }
       show(
         { kind: "bluetooth", id: "bluetooth", priority: ActivityPriority.bluetooth, device: name, connected, isHeadphones },
         STATUS_HUD_MS
@@ -1372,6 +1379,9 @@ const FloatShell: React.FC = () => {
     }));
 
     unlisteners.push(subscribeToAudioDevice(({ name, isHeadphones }) => {
+      if (visualModeRef.current === "orb") {
+        transitionTo("compact", "bluetooth-activity");
+      }
       show(
         { kind: "bluetooth", id: "audio-device", priority: ActivityPriority.bluetooth, device: name, connected: true, isHeadphones },
         STATUS_HUD_MS
@@ -1379,9 +1389,12 @@ const FloatShell: React.FC = () => {
     }));
 
     unlisteners.push(subscribeToPower(({ percent, charging, low, lifeTime }) => {
+      if (visualModeRef.current === "orb") {
+        transitionTo("compact", "battery-activity");
+      }
       show(
         { kind: "battery", id: "battery", priority: ActivityPriority.battery, percent, charging, low, lifeTime },
-        STATUS_HUD_MS
+        charging ? 3200 : STATUS_HUD_MS
       );
     }));
 
