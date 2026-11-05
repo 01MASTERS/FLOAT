@@ -192,6 +192,8 @@ export interface PowerPayload {
   charging: boolean;
   /** This change crossed a low-battery threshold while discharging. */
   low: boolean;
+  /** Estimated seconds of battery life remaining while discharging. */
+  lifeTime?: number;
 }
 
 /** Battery level and charging state, or null on machines without a battery. */
@@ -287,6 +289,27 @@ export async function subscribeToBluetoothDevice(
   callback: (event: { name: string; connected: boolean }) => void
 ): Promise<UnlistenFn> {
   return await listen<{ name: string; connected: boolean }>("bluetooth-device", (event) => callback(event.payload));
+}
+
+export interface AudioDevicePayload {
+  name: string;
+  isHeadphones: boolean;
+}
+
+/** Get the currently active default audio output device. */
+export async function getCurrentAudioDevice(): Promise<AudioDevicePayload | null> {
+  try {
+    return await invoke<AudioDevicePayload | null>("get_current_audio_device");
+  } catch {
+    return null;
+  }
+}
+
+/** Fires when the default audio output device (speakers, headphones, AirPods, etc.) switches. */
+export async function subscribeToAudioDevice(
+  callback: (payload: AudioDevicePayload) => void
+): Promise<UnlistenFn> {
+  return await listen<AudioDevicePayload>("audio-device-changed", (event) => callback(event.payload));
 }
 
 export interface WifiNetwork {

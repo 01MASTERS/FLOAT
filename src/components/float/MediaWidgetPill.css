@@ -205,8 +205,8 @@
 }
 
 .media-pill-indicator-slot {
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -228,31 +228,32 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: 2px;
-  height: 10px;
-  width: 10px;
+  height: 14px;
+  width: 14px;
 }
 
 .equalizer-bars .bar {
-  width: 2px;
-  background-color: var(--float-accent);
-  border-radius: 1px;
+  width: 2.5px;
+  background-color: var(--float-accent, #34c759);
+  border-radius: 1.5px;
   will-change: height;
+  box-shadow: 0 0 4px color-mix(in srgb, var(--float-accent, #34c759) 35%, transparent);
 }
 
 .equalizer-bars .bar-1 {
-  height: 35%;
-  animation: eq-bar-1 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+  height: 40%;
+  animation: eq-bar-1 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
 }
 
 .equalizer-bars .bar-2 {
-  height: 75%;
-  animation: eq-bar-2 1.05s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+  height: 85%;
+  animation: eq-bar-2 1.0s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
   animation-delay: 0.15s;
 }
 
 .equalizer-bars .bar-3 {
-  height: 50%;
-  animation: eq-bar-3 0.92s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+  height: 55%;
+  animation: eq-bar-3 0.9s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
   animation-delay: 0.08s;
 }
 

@@ -17,9 +17,44 @@
   color: #34c759;
 }
 
+.bolt-glow {
+  filter: drop-shadow(0 0 6px rgba(52, 199, 89, 0.75));
+  animation: bolt-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes bolt-pulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 4px rgba(52, 199, 89, 0.6));
+  }
+  50% {
+    transform: scale(1.12);
+    filter: drop-shadow(0 0 8px rgba(52, 199, 89, 0.95));
+  }
+}
+
+.battery-hud-bolt-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
 .status-hud-icon.shelf,
 .status-hud-icon.bluetooth {
   color: #0a84ff;
+}
+
+.status-hud-icon.headphones {
+  color: #0a84ff;
+}
+
+.audio-device-hud.headphones-active .status-hud-icon.headphones {
+  color: #34c759;
+}
+
+.status-hud-icon.speaker {
+  color: #ff9f0a;
 }
 
 .status-hud-icon.focus {
@@ -50,10 +85,26 @@
   background: #ff453a;
 }
 
+.status-hud-text-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+}
+
 .status-hud-label {
   font-size: 12px;
   font-weight: 600;
   color: var(--float-text-primary);
+  white-space: nowrap;
+}
+
+.status-hud-sublabel {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--float-text-secondary);
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -65,6 +116,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 140px;
 }
 
 .status-hud-battery {
@@ -106,6 +158,7 @@
   height: 100%;
   border-radius: 1.5px;
   background: var(--float-text-primary);
+  transition: width 0.3s ease;
 }
 
 .status-hud-battery.charging .status-hud-cell-fill {

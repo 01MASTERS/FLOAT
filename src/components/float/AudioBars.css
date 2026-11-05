@@ -1,5 +1,5 @@
 /* While live levels arrive, inline heights replace the fallback keyframes. */
 .audio-live > span {
   animation: none !important;
-  transition: height 80ms linear;
+  transition: height 75ms cubic-bezier(0.2, 0.8, 0.25, 1);
 }

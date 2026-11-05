@@ -60,6 +60,7 @@ export interface BatteryActivity {
   percent: number;
   charging: boolean;
   low: boolean;
+  lifeTime?: number;
 }
 
 export interface PrivacyActivity {
@@ -77,6 +78,7 @@ export interface BluetoothActivity {
   priority: number;
   device: string;
   connected: boolean;
+  isHeadphones?: boolean;
 }
 
 export interface BrightnessActivity {

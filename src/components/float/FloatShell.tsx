@@ -30,6 +30,7 @@ import {
   subscribeToPrivacy,
   getPrivacyState,
   subscribeToBluetoothDevice,
+  subscribeToAudioDevice,
   subscribeToFileDrag,
   subscribeToBrightness,
   getIslandAttached,
@@ -1363,15 +1364,23 @@ const FloatShell: React.FC = () => {
     }));
 
     unlisteners.push(subscribeToBluetoothDevice(({ name, connected }) => {
+      const isHeadphones = /headphone|headset|earphone|airpod|buds|wh-|wf-|freebuds|galaxy/i.test(name);
       show(
-        { kind: "bluetooth", id: "bluetooth", priority: ActivityPriority.bluetooth, device: name, connected },
+        { kind: "bluetooth", id: "bluetooth", priority: ActivityPriority.bluetooth, device: name, connected, isHeadphones },
         STATUS_HUD_MS
       );
     }));
 
-    unlisteners.push(subscribeToPower(({ percent, charging, low }) => {
+    unlisteners.push(subscribeToAudioDevice(({ name, isHeadphones }) => {
       show(
-        { kind: "battery", id: "battery", priority: ActivityPriority.battery, percent, charging, low },
+        { kind: "bluetooth", id: "audio-device", priority: ActivityPriority.bluetooth, device: name, connected: true, isHeadphones },
+        STATUS_HUD_MS
+      );
+    }));
+
+    unlisteners.push(subscribeToPower(({ percent, charging, low, lifeTime }) => {
+      show(
+        { kind: "battery", id: "battery", priority: ActivityPriority.battery, percent, charging, low, lifeTime },
         STATUS_HUD_MS
       );
     }));

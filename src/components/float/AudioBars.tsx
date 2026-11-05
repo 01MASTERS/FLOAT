@@ -28,7 +28,7 @@ function release(listener: Listener) {
 // Keep the built-in animation while the output is silent (e.g. muted), so a
 // playing track never looks frozen.
 const SILENT_FALLBACK_MS = 1200;
-const MIN_HEIGHT = 18; // percent
+const MIN_HEIGHT = 16; // percent
 
 interface AudioBarsProps {
   /** Container class carrying the size and the fallback keyframe animation. */
@@ -57,7 +57,9 @@ export const AudioBars: React.FC<AudioBarsProps> = ({ className, barClass, count
       barsRef.current.forEach((bar, i) => {
         if (!bar) return;
         const level = levels[i % levels.length] ?? 0;
-        bar.style.height = `${MIN_HEIGHT + level * (100 - MIN_HEIGHT)}%`;
+        // Non-linear power response gives punchy, musical dynamics across quiet and loud tracks
+        const scaled = Math.min(100, Math.max(MIN_HEIGHT, Math.round(MIN_HEIGHT + Math.pow(level, 0.72) * (100 - MIN_HEIGHT))));
+        bar.style.height = `${scaled}%`;
       });
     };
     retain(listener);

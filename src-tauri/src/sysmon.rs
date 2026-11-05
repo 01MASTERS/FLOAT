@@ -7,6 +7,7 @@
 //! Events fire only on change, never for the initial reading.
 
 use serde::Serialize;
+use cpal::traits::{DeviceTrait, HostTrait};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use windows::core::{HSTRING, PWSTR};
@@ -33,12 +34,21 @@ struct VolumePayload {
     muted: bool,
 }
 
-#[derive(Clone, Copy, PartialEq, Serialize)]
+#[derive(Clone, Copy, PartialEq, Serialize, Debug)]
 pub struct PowerPayload {
-    percent: u8,
-    charging: bool,
+    pub percent: u8,
+    pub charging: bool,
     /// Set when this change crossed a low-battery threshold while discharging.
-    low: bool,
+    pub low: bool,
+    #[serde(rename = "lifeTime", skip_serializing_if = "Option::is_none")]
+    pub life_time: Option<u32>,
+}
+
+#[derive(Clone, Serialize, PartialEq, Debug)]
+pub struct AudioDevicePayload {
+    pub name: String,
+    #[serde(rename = "isHeadphones")]
+    pub is_headphones: bool,
 }
 
 #[derive(Clone, PartialEq, Serialize, Default)]
@@ -71,14 +81,19 @@ fn read_volume(endpoint: &IAudioEndpointVolume) -> Option<VolumePayload> {
 // --- Power -------------------------------------------------------------------
 
 /// None on machines without a battery.
-fn read_power() -> Option<(u8, bool)> {
+fn read_power() -> Option<(u8, bool, Option<u32>)> {
     let mut status = SYSTEM_POWER_STATUS::default();
     unsafe { GetSystemPowerStatus(&mut status) }.ok().ok()?;
     // 128 = no system battery, 255 = unknown.
     if status.BatteryFlag & 128 != 0 || status.BatteryFlag == 255 || status.BatteryLifePercent > 100 {
         return None;
     }
-    Some((status.BatteryLifePercent, status.ACLineStatus == 1))
+    let life_time = if status.BatteryLifeTime != u32::MAX && status.BatteryLifeTime > 0 {
+        Some(status.BatteryLifeTime)
+    } else {
+        None
+    };
+    Some((status.BatteryLifePercent, status.ACLineStatus == 1, life_time))
 }
 
 // --- Camera / microphone -----------------------------------------------------
@@ -191,6 +206,12 @@ fn run(app: AppHandle) {
     let mut privacy = read_privacy();
     let mut privacy_at = Instant::now();
 
+    let mut audio_device: Option<String> = cpal::default_host()
+        .default_output_device()
+        .and_then(|d| d.name().ok());
+    let mut audio_device_at = Instant::now();
+    const AUDIO_DEVICE_EVERY: Duration = Duration::from_millis(1000);
+
     loop {
         std::thread::sleep(TICK);
 
@@ -205,13 +226,42 @@ fn run(app: AppHandle) {
             volume = Some(next);
         }
 
+        if audio_device_at.elapsed() >= AUDIO_DEVICE_EVERY {
+            audio_device_at = Instant::now();
+            let next_device = cpal::default_host()
+                .default_output_device()
+                .and_then(|d| d.name().ok());
+            if let (Some(ref prev), Some(ref next)) = (&audio_device, &next_device) {
+                if prev != next {
+                    dlog!("[SYSMON] default audio device changed from {:?} to {:?}", prev, next);
+                    let lower = next.to_lowercase();
+                    let is_headphones = lower.contains("headphone")
+                        || lower.contains("headset")
+                        || lower.contains("earphone")
+                        || lower.contains("airpod")
+                        || lower.contains("buds")
+                        || lower.contains("wh-")
+                        || lower.contains("wf-")
+                        || lower.contains("freebuds")
+                        || lower.contains("galaxy");
+                    let payload = AudioDevicePayload {
+                        name: next.clone(),
+                        is_headphones,
+                    };
+                    let _ = app.emit("audio-device-changed", payload);
+                }
+            }
+            audio_device = next_device;
+        }
+
         if power_at.elapsed() >= POWER_EVERY {
             power_at = Instant::now();
             let next = read_power();
-            if let (Some((prev_pct, prev_ac)), Some((pct, ac))) = (power, next) {
+            if let (Some((prev_pct, prev_ac, _)), Some((pct, ac, life_time))) = (power, next) {
                 let crossed_low = !ac && LOW_BATTERY_LEVELS.iter().any(|&t| prev_pct > t && pct <= t);
-                if prev_ac != ac || crossed_low {
-                    let payload = PowerPayload { percent: pct, charging: ac, low: crossed_low };
+                let full_charged = ac && prev_pct < 100 && pct == 100;
+                if prev_ac != ac || crossed_low || full_charged {
+                    let payload = PowerPayload { percent: pct, charging: ac, low: crossed_low, life_time };
                     let _ = app.emit("power-changed", payload);
                 }
             }
@@ -233,7 +283,24 @@ fn run(app: AppHandle) {
 /// Battery level and charging state, or None without a battery.
 #[tauri::command]
 pub fn get_power_state() -> Option<PowerPayload> {
-    read_power().map(|(percent, charging)| PowerPayload { percent, charging, low: false })
+    read_power().map(|(percent, charging, life_time)| PowerPayload { percent, charging, low: false, life_time })
+}
+
+/// Current default audio output device.
+#[tauri::command]
+pub fn get_current_audio_device() -> Option<AudioDevicePayload> {
+    let name = cpal::default_host().default_output_device().and_then(|d| d.name().ok())?;
+    let lower = name.to_lowercase();
+    let is_headphones = lower.contains("headphone")
+        || lower.contains("headset")
+        || lower.contains("earphone")
+        || lower.contains("airpod")
+        || lower.contains("buds")
+        || lower.contains("wh-")
+        || lower.contains("wf-")
+        || lower.contains("freebuds")
+        || lower.contains("galaxy");
+    Some(AudioDevicePayload { name, is_headphones })
 }
 
 /// Current camera / microphone use, for the frontend's initial state.

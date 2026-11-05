@@ -60,6 +60,7 @@ pub fn run() {
             volume::toggle_mute,
             sysmon::get_privacy_state,
             sysmon::get_power_state,
+            sysmon::get_current_audio_device,
             sysstats::get_system_stats,
             weather::get_weather,
             calendar::get_calendar_events,
