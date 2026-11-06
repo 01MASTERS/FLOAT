@@ -168,14 +168,28 @@ if (-not $cert) {
     $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=FLOATDev" -KeyUsage DigitalSignature -FriendlyName "FLOAT Dev Cert" -CertStoreLocation "Cert:\CurrentUser\My" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
 }
 
+# Export certificate to target for installation trust
+$certExportPath = "$targetDir\FLOAT-certificate.cer"
+Export-Certificate -Cert $cert -FilePath $certExportPath -Force | Out-Null
+
 # Ensure certificate is in TrustedPeople store for local installation
-$trustedCert = Get-ChildItem -Path Cert:\CurrentUser\TrustedPeople | Where-Object { $_.Thumbprint -eq $cert.Thumbprint } | Select-Object -First 1
+$trustedCert = Get-ChildItem -Path Cert:\CurrentUser\TrustedPeople -ErrorAction SilentlyContinue | Where-Object { $_.Thumbprint -eq $cert.Thumbprint } | Select-Object -First 1
 if (-not $trustedCert) {
     Write-Host "Trusting certificate in CurrentUser\TrustedPeople..."
     $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPeople", "CurrentUser")
     $store.Open("ReadWrite")
     $store.Add($cert)
     $store.Close()
+}
+
+# Try adding to LocalMachine\TrustedPeople if elevated
+try {
+    $lmStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPeople", "LocalMachine")
+    $lmStore.Open("ReadWrite")
+    $lmStore.Add($cert)
+    $lmStore.Close()
+} catch {
+    # Not elevated; user will install cert or run admin if needed
 }
 
 Write-Host "Signing MSIX package..."
@@ -192,7 +206,20 @@ if ($NoInstall) {
         Write-Host "Removing installed $($existing.Version) (not older than $msixVersion; its data is reset)..."
         $existing | Remove-AppxPackage
     }
-    Add-AppxPackage -Path "$msixPath" -ForceApplicationShutdown
+    try {
+        Add-AppxPackage -Path "$msixPath" -ForceApplicationShutdown
+    } catch {
+        if ($_.Exception.Message -match "0x800B0109" -or $_.Exception.Message -match "root certificate") {
+            Write-Host "`n[!] Windows requires trusting the self-signed certificate in Local Machine store:" -ForegroundColor Yellow
+            Write-Host "1. Double-click: $certExportPath" -ForegroundColor Cyan
+            Write-Host "2. Click 'Install Certificate...' -> Choose 'Local Machine' -> Next" -ForegroundColor Cyan
+            Write-Host "3. Choose 'Place all certificates in the following store' -> Browse -> 'Trusted People' -> Next -> Finish" -ForegroundColor Cyan
+            Write-Host "4. Double-click $msixPath to install (or run this script again).`n" -ForegroundColor Cyan
+            throw $_
+        } else {
+            throw $_
+        }
+    }
 }
 
 Write-Host "=============================================" -ForegroundColor Green
