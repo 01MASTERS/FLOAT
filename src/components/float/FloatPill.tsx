@@ -8,7 +8,11 @@ import { AppIcon } from "./AppIcon";
 import { openNotificationApp, removeNotification } from "../../platform";
 import { VolumeHud } from "./VolumeHud";
 import { IdleNotch } from "./IdleNotch";
-import { CalendarAlertActivity, StatusActivity, TimerActivity, VolumeActivity } from "../../activities/types";
+import type { IdleClock } from "../../services/settings";
+import { CalendarAlertActivity, MeetingActivity, SessionActivity, StatusActivity, TimerActivity, UpdateActivity, VolumeActivity } from "../../activities/types";
+import { UpdatePill } from "./UpdatePill";
+import { FocusPill } from "./Focus";
+import { MeetingPill } from "./Meeting";
 import { openBrowserUrl } from "../../platform";
 import { TimerPill } from "./Timer";
 import { DropZone } from "./Shelf";
@@ -24,9 +28,16 @@ interface FloatPillProps {
   isNotificationActive?: boolean;
   onDismissNotification?: () => void;
   showContent?: boolean;
+  idleClock?: IdleClock;
   volume?: VolumeActivity | null;
   status?: StatusActivity | null;
   timer?: TimerActivity | null;
+  session?: SessionActivity | null;
+  meeting?: MeetingActivity | null;
+  onDismissMeeting?: () => void;
+  update?: UpdateActivity | null;
+  onUpdateLater?: () => void;
+  onUpdateBusy?: (busy: boolean) => void;
   calendarAlert?: CalendarAlertActivity | null;
   onDismissAlert?: () => void;
   /** Files are being dragged over the notch (count), or null. */
@@ -43,9 +54,16 @@ export const FloatPill: React.FC<FloatPillProps> = ({
   isNotificationActive = false,
   onDismissNotification,
   showContent = true,
+  idleClock = "off",
   volume = null,
   status = null,
   timer = null,
+  session = null,
+  meeting = null,
+  onDismissMeeting = () => {},
+  update = null,
+  onUpdateLater = () => {},
+  onUpdateBusy = () => {},
   calendarAlert = null,
   onDismissAlert,
   dropCount = null,
@@ -58,6 +76,12 @@ export const FloatPill: React.FC<FloatPillProps> = ({
     ? "volume"
     : status
     ? `status-${status.kind}`
+    : update
+    ? "update"
+    : session
+    ? "session"
+    : meeting
+    ? "meeting"
     : timer
     ? "timer"
     : calendarAlert
@@ -92,6 +116,12 @@ export const FloatPill: React.FC<FloatPillProps> = ({
           <VolumeHud activity={volume} onChange={onVolumeChange} />
         ) : status ? (
           <StatusHud activity={status} />
+        ) : update ? (
+          <UpdatePill activity={update} onLater={onUpdateLater} onBusy={onUpdateBusy} />
+        ) : session ? (
+          <FocusPill state={session.state} />
+        ) : meeting ? (
+          <MeetingPill activity={meeting} onDismiss={onDismissMeeting} />
         ) : timer ? (
           <TimerPill state={timer.state} />
         ) : calendarAlert ? (
@@ -199,7 +229,7 @@ export const FloatPill: React.FC<FloatPillProps> = ({
         ) : media?.hasMedia ? (
           <MediaWidgetPill media={media} sessionCount={sessionCount} isPreview={isPreview} />
         ) : (
-          <IdleNotch isPreview={isPreview} hasUnread={!!notification?.hasNotification} />
+          <IdleNotch isPreview={isPreview} hasUnread={!!notification?.hasNotification} clock={idleClock} />
         )}
           </motion.div>
         </AnimatePresence>

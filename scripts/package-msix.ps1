@@ -3,7 +3,9 @@
 
 param(
     # Build and sign the package but don't uninstall/install anything.
-    [switch]$NoInstall
+    [switch]$NoInstall,
+    # Fourth MSIX version part, for a rebuild of the same app version.
+    [int]$Revision = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,7 +62,7 @@ $signtool = Find-WindowsSdkTool "signtool.exe"
 $rootDir = Split-Path -Parent $PSScriptRoot
 # The package version follows package.json (MSIX needs four parts).
 $appVersion = (Get-Content (Join-Path $rootDir "package.json") -Raw | ConvertFrom-Json).version
-$msixVersion = "$appVersion.0"
+$msixVersion = "$appVersion.$Revision"
 $stagingDir = Join-Path $rootDir "target\msix_staging"
 $msixPath = Join-Path $rootDir "target\FLOAT.msix"
 
@@ -183,9 +185,11 @@ if ($NoInstall) {
     Write-Host "[7/7] Skipping install (-NoInstall)." -ForegroundColor Cyan
 } else {
     Write-Host "[7/7] Installing packaged application..." -ForegroundColor Cyan
+    # A newer version installs over the old one and keeps its data (settings,
+    # tasks). Only a same-or-older build has to replace it, which wipes that.
     $existing = Get-AppxPackage | Where-Object { $_.Name -like "*FLOAT*" }
-    if ($existing) {
-        Write-Host "Removing previously installed package..."
+    if ($existing -and [version]$existing.Version -ge [version]$msixVersion) {
+        Write-Host "Removing installed $($existing.Version) (not older than $msixVersion; its data is reset)..."
         $existing | Remove-AppxPackage
     }
     Add-AppxPackage -Path "$msixPath" -ForceApplicationShutdown

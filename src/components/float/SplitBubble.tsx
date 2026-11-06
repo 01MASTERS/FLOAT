@@ -4,6 +4,8 @@ import { Activity } from "../../activities/types";
 import { useAlbumArt } from "./useAlbumArt";
 import { AudioBars } from "./AudioBars";
 import { TimerIcon } from "./Timer";
+import { FocusRing } from "./Focus";
+import { CalendarClock } from "lucide-react";
 import "./SplitBubble.css";
 
 interface SplitBubbleProps {
@@ -37,6 +39,10 @@ export const SplitBubble: React.FC<SplitBubbleProps> = ({ activity, size, gap, d
         <MediaMinimal activity={activity} />
       ) : activity.kind === "timer" ? (
         <TimerIcon />
+      ) : activity.kind === "session" ? (
+        <FocusRing state={activity.state} size={22} stroke={2.5} />
+      ) : activity.kind === "meeting" ? (
+        <CalendarClock size={16} strokeWidth={2.2} color="var(--red)" />
       ) : (
         <span className="split-bubble-dot" />
       )}
@@ -50,15 +56,7 @@ const MediaMinimal: React.FC<{ activity: Extract<Activity, { kind: "media" }> }>
   return (
     <>
       {art && <img className="split-bubble-art" src={art} alt="" draggable={false} />}
-      {playing ? (
-        <AudioBars className={`split-bubble-eq playing ${art ? "over-art" : ""}`} barClass="split-bubble-bar" />
-      ) : (
-        <span className={`split-bubble-eq ${art ? "over-art" : ""}`}>
-          <span />
-          <span />
-          <span />
-        </span>
-      )}
+      <AudioBars className={`split-bubble-eq ${art ? "over-art" : ""}`} barClass="split-bubble-bar" count={4} playing={playing} />
     </>
   );
 };

@@ -41,6 +41,7 @@ Progress: [██████████] 100%
 | `261104-deep-notification-activation-sync` | Deep notification activation with COM INotificationActivationCallback & bidirectional Windows Action Center sync | 2026-11-04 | Complete ✓ |
 | `261105-disambiguate-notification-senders` | Disambiguate notification senders, resolve protocol handlers, custom appLogoOverride, and Start Menu shortcuts | 2026-11-05 | Complete ✓ |
 | `261105-smart-battery-audio-device-mini-eq` | Smart battery alerts, audio device/Bluetooth connect pill, and mini equalizer in media notch | 2026-11-05 | Complete ✓ |
+| `261106-branch-merge-and-conflict-resolution` | Move local commits to branch, reset main to upstream v3.1.0, merge and resolve conflicts | 2026-11-06 | Complete ✓ |
 
 ## Performance Metrics
 

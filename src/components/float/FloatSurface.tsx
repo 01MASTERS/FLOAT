@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, Calendar, CircleCheck, House, Inbox, SlidersHorizontal, Timer } from "lucide-react";
+import { Bell, Calendar, CircleCheck, House, Inbox, Search, SlidersHorizontal, Timer } from "lucide-react";
 import { MediaSession, MultiSessionState } from "../../platform/media";
-import { NotificationItem } from "../../platform";
+import { getPasteHotkey, getSearchHotkey, NotificationItem, openSettingsWindow } from "../../platform";
 import { HomeView } from "./HomeView";
 import { CalendarView } from "./CalendarView";
 import { TrayView } from "./TrayView";
 import { TasksView } from "./TasksView";
 import { TimerView } from "./TimerView";
 import { FloatNotificationsView } from "./FloatNotificationsView";
-import { FloatSettingsView } from "./FloatSettingsView";
 import { ControlsView } from "./ControlCenter";
+import { SearchView } from "./SearchView";
+import { PasteView } from "./PasteView";
 import { shouldShowWelcome, Welcome } from "./Welcome";
 import "./ui.css";
 import "./FloatSurface.css";
@@ -25,26 +26,35 @@ interface FloatSurfaceProps {
   onDismissNotification?: (id: number) => void;
   onClearAllNotifications?: () => void;
   focusActive?: boolean;
+  /** Switch to a tab from outside (the search hotkey); a new nonce re-applies it. */
+  request?: SurfaceRequest | null;
+  onTabChange?: (tab: SurfaceTab) => void;
 }
 
-/** "settings" has no icon of its own; it opens from Controls. */
-export type SurfaceTab = "home" | "calendar" | "tray" | "tasks" | "timer" | "notifications" | "controls" | "settings";
+export interface SurfaceRequest {
+  tab: SurfaceTab;
+  nonce: number;
+  query?: string;
+}
 
-type BarTab = Exclude<SurfaceTab, "settings">;
+export type SurfaceTab = "paste" | "search" | "home" | "calendar" | "tray" | "tasks" | "timer" | "notifications" | "controls";
+
+type BarTab = Exclude<SurfaceTab, "paste">;
 
 const TABS: Record<BarTab, { label: string; Icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = {
+  search: { label: "Search", Icon: Search },
   home: { label: "Home", Icon: House },
   calendar: { label: "Calendar", Icon: Calendar },
   tray: { label: "Tray", Icon: Inbox },
-  tasks: { label: "Tasks", Icon: CircleCheck },
-  timer: { label: "Timer", Icon: Timer },
+  tasks: { label: "Tasks & Notes", Icon: CircleCheck },
+  timer: { label: "Focus & Timer", Icon: Timer },
   notifications: { label: "Notifications", Icon: Bell },
   controls: { label: "Controls", Icon: SlidersHorizontal },
 };
 
 // Things you do on the left; system things on the right.
 const LEFT_TABS: BarTab[] = ["home", "calendar", "tray", "tasks", "timer"];
-const RIGHT_TABS: BarTab[] = ["notifications", "controls"];
+const RIGHT_TABS: BarTab[] = ["search", "notifications", "controls"];
 
 const tabTransition = { duration: 0.18, ease: [0.16, 1, 0.3, 1] as const };
 
@@ -58,20 +68,57 @@ export const FloatSurface: React.FC<FloatSurfaceProps> = ({
   onDismissNotification = () => {},
   onClearAllNotifications = () => {},
   focusActive = false,
+  request = null,
+  onTabChange,
 }) => {
-  const [activeTab, setActiveTab] = useState<SurfaceTab>(initialTab ?? "home");
+  const [activeTab, setActiveTab] = useState<SurfaceTab>(request?.tab ?? initialTab ?? "home");
+  const [searchSeed, setSearchSeed] = useState(request?.query ?? "");
+  const [welcome, setWelcome] = useState(() => shouldShowWelcome() && request?.tab !== "search" && request?.tab !== "paste");
+  const [searchHotkey, setSearchHotkey] = useState<string | null>(null);
+  // Search opening a task or note in its tab.
+  const [tasksOpen, setTasksOpen] = useState<{ mode: "tasks" | "notes"; noteId?: string } | null>(null);
+
+  const [pasteHotkey, setPasteHotkey] = useState<string | null>(null);
+  useEffect(() => {
+    getSearchHotkey().then(setSearchHotkey);
+    getPasteHotkey().then(setPasteHotkey);
+  }, []);
 
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
     }
   }, [initialTab]);
-  const [welcome, setWelcome] = useState(shouldShowWelcome);
+
+  useEffect(() => {
+    if (!request) return;
+    setWelcome(false);
+    setSearchSeed(request.query ?? "");
+    setActiveTab(request.tab);
+  }, [request?.nonce]);
+
+  useEffect(() => {
+    onTabChange?.(welcome ? "home" : activeTab);
+  }, [activeTab, welcome]);
+
+  // Type-to-search: typing on any tab without a text field jumps to search.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (activeTab === "search" || activeTab === "paste" || welcome || e.ctrlKey || e.altKey || e.metaKey) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key.length !== 1 || e.key === " ") return;
+      e.preventDefault();
+      setSearchSeed(e.key);
+      setActiveTab("search");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeTab, welcome]);
 
   const tabButton = (tab: BarTab) => {
     const { label, Icon } = TABS[tab];
     // Settings lives under Controls, so keep that icon lit there too.
-    const active = activeTab === tab || (tab === "controls" && activeTab === "settings");
+    const active = activeTab === tab;
     return (
       <button
         key={tab}
@@ -79,6 +126,7 @@ export const FloatSurface: React.FC<FloatSurfaceProps> = ({
         className={`float-surface-nav-btn ${active ? "active" : ""}`}
         onClick={(e) => {
           e.stopPropagation();
+          setTasksOpen(null);
           setActiveTab(tab);
         }}
         data-no-drag="true"
@@ -94,6 +142,21 @@ export const FloatSurface: React.FC<FloatSurfaceProps> = ({
   const body = (() => {
     if (welcome) return <Welcome onDone={() => setWelcome(false)} />;
     switch (activeTab) {
+      case "paste":
+        return <PasteView onDone={onCollapse} onExit={onCollapse} hotkey={pasteHotkey} />;
+      case "search":
+        return (
+          <SearchView
+            initialQuery={searchSeed}
+            onDone={onCollapse}
+            onExit={() => setActiveTab("home")}
+            onNavigate={(mode, noteId) => {
+              setTasksOpen({ mode, noteId });
+              setActiveTab("tasks");
+            }}
+            hotkey={searchHotkey}
+          />
+        );
       case "home":
         return (
           <HomeView
@@ -108,13 +171,16 @@ export const FloatSurface: React.FC<FloatSurfaceProps> = ({
         return (
           <CalendarView
             onOpenTasks={() => setActiveTab("tasks")}
-            onOpenSettings={() => setActiveTab("settings")}
+            onOpenSettings={() => {
+              openSettingsWindow();
+              onCollapse();
+            }}
           />
         );
       case "tray":
         return <TrayView />;
       case "tasks":
-        return <TasksView />;
+        return <TasksView mode={tasksOpen?.mode} noteId={tasksOpen?.noteId ?? null} />;
       case "timer":
         return <TimerView />;
       case "notifications":
@@ -126,9 +192,16 @@ export const FloatSurface: React.FC<FloatSurfaceProps> = ({
           />
         );
       case "controls":
-        return <ControlsView focusActive={focusActive} onOpenSettings={() => setActiveTab("settings")} />;
-      case "settings":
-        return <FloatSettingsView onClose={() => setActiveTab("controls")} />;
+        return (
+          <ControlsView
+            focusActive={focusActive}
+            onOpenSettings={() => {
+              // Settings is its own window; the island steps aside.
+              openSettingsWindow();
+              onCollapse();
+            }}
+          />
+        );
     }
   })();
 
@@ -145,8 +218,9 @@ export const FloatSurface: React.FC<FloatSurfaceProps> = ({
         <button
           className="float-surface-header-center"
           onClick={onCollapse}
-          data-no-drag="true"
-          aria-label="Collapse island"
+          data-drag-handle="true"
+          aria-label="Drag to move, click to close"
+          title="Drag to move · Click to close"
         >
           <div className="float-surface-handle" />
         </button>

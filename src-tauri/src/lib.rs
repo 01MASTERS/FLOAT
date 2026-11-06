@@ -12,17 +12,29 @@ mod appicon;
 mod autostart;
 mod backdrop;
 mod brightness;
+mod btbattery;
 mod calendar;
 mod clipboard;
 mod connectivity;
+mod datastore;
+mod diag;
+mod downloads;
 mod focus;
+mod hotkeys;
 mod lyrics;
 mod media;
+mod micmute;
 mod notifications;
+mod paste;
+mod search;
+mod settingswin;
 mod shelf;
 mod sysmon;
+mod syscmd;
 mod sysstats;
+mod textgrab;
 mod tray;
+mod updater;
 mod visualizer;
 mod volume;
 mod weather;
@@ -37,10 +49,20 @@ fn log_from_js(msg: String) {
 pub fn run() {
     tauri::Builder::default()
         // Must be registered first: a second launch just opens the island.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            tray::command_island(app, tray::IslandCommand::Open);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // `float.exe --copy-text` starts Copy Text (for custom shortcuts).
+            if args.iter().any(|a| a == "--copy-text") {
+                textgrab::start(app);
+            } else if args.iter().any(|a| a == "--settings") {
+                settingswin::open(app, None);
+            } else if args.iter().any(|a| a == "--controls") {
+                tray::command_island(app, tray::IslandCommand::Controls);
+            } else {
+                tray::command_island(app, tray::IslandCommand::Open);
+            }
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tray::global_shortcut_plugin())
         .plugin(tauri_plugin_drag::init())
         .invoke_handler(tauri::generate_handler![
@@ -49,10 +71,46 @@ pub fn run() {
             window::reset_window_position,
             window::get_island_attached,
             backdrop::set_backdrop,
+            backdrop::glass_supported,
             window::island_drag_started,
             autostart::get_autostart,
             autostart::set_autostart,
             tray::get_hotkey,
+            tray::get_search_hotkey,
+            tray::get_text_hotkey,
+            tray::get_mic_hotkey,
+            micmute::toggle_mic_mute,
+            micmute::get_mic_muted,
+            btbattery::bluetooth_battery,
+            syscmd::system_command,
+            paste::paste_history_entry,
+            paste::paste_text,
+            tray::get_paste_hotkey,
+            hotkeys::get_shortcuts,
+            hotkeys::set_shortcut,
+            hotkeys::pause_shortcuts,
+            settingswin::open_settings,
+            diag::log_js_error,
+            diag::diagnostics,
+            diag::reveal_logs,
+            datastore::store_load,
+            datastore::store_save,
+            datastore::store_paths,
+            datastore::store_reveal,
+            datastore::export_data,
+            datastore::import_data,
+            textgrab::textgrab_start,
+            textgrab::textgrab_image,
+            textgrab::textgrab_recognize,
+            textgrab::textgrab_cancel,
+            search::search,
+            search::search_ready,
+            search::search_open,
+            search::search_icon,
+            downloads::set_download_alerts,
+            downloads::open_download,
+            updater::check_for_update,
+            updater::install_update,
             visualizer::set_visualizer_active,
             volume::get_volume,
             volume::change_volume,
@@ -101,30 +159,33 @@ pub fn run() {
             appicon::get_app_icon
         ])
         .setup(|app| {
+            diag::init(app);
             shelf::init(app);
+            search::init();
+            downloads::init(app);
             if let Err(e) = window::init(app) {
-                eprintln!("Failed to init window: {}", e);
+                crate::elog!("Failed to init window: {}", e);
             }
             if let Err(e) = tray::init(app) {
-                eprintln!("Failed to init tray: {}", e);
+                crate::elog!("Failed to init tray: {}", e);
             }
             if let Err(e) = sysmon::init(app) {
-                eprintln!("Failed to init system monitor: {}", e);
+                crate::elog!("Failed to init system monitor: {}", e);
             }
             if let Err(e) = brightness::init(app) {
-                eprintln!("Failed to init brightness: {}", e);
+                crate::elog!("Failed to init brightness: {}", e);
             }
             if let Err(e) = clipboard::init(app) {
-                eprintln!("Failed to init clipboard history: {}", e);
+                crate::elog!("Failed to init clipboard history: {}", e);
             }
             if let Err(e) = connectivity::init(app) {
-                eprintln!("Failed to init connectivity: {}", e);
+                crate::elog!("Failed to init connectivity: {}", e);
             }
             if let Err(e) = media::init(app) {
-                eprintln!("Failed to init media: {}", e);
+                crate::elog!("Failed to init media: {}", e);
             }
             if let Err(e) = notifications::init(app) {
-                eprintln!("Failed to init notifications: {}", e);
+                crate::elog!("Failed to init notifications: {}", e);
             }
             Ok(())
         })

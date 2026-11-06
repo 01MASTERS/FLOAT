@@ -58,5 +58,10 @@ Thumbs.db
 *.log
 scratch/
 
+# Promo film renders
+promo/out/
+promo/clips/
+promo/wallpapers/
+
 # Local planning directory (commit_docs = false)
 .planning/

@@ -3,7 +3,8 @@
 //! blocking `.get()` so nothing non-Send crosses an await.
 
 use serde::Serialize;
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use windows::Devices::Bluetooth::{BluetoothConnectionStatus, BluetoothDevice};
 use windows::Devices::Enumeration::DeviceInformation;
@@ -54,10 +55,19 @@ fn com_init() {
     }
 }
 
+/// Listing radios is slow, and they rarely come or go (a USB dongle), so the
+/// list is reused for a while; each Radio still reports its live state.
+const RADIOS_FOR: Duration = Duration::from_secs(30);
+static RADIOS: Mutex<Option<(Instant, Vec<Radio>)>> = Mutex::new(None);
+
 fn radio(kind: RadioKind) -> Option<Radio> {
-    let radios = Radio::GetRadiosAsync().ok()?.get().ok()?;
-    let found = radios.into_iter().find(|r| r.Kind().ok() == Some(kind));
-    found
+    let mut cache = RADIOS.lock().ok()?;
+    if cache.as_ref().map_or(true, |(at, _)| at.elapsed() >= RADIOS_FOR) {
+        let radios = Radio::GetRadiosAsync().ok()?.get().ok()?;
+        *cache = Some((Instant::now(), radios.into_iter().collect()));
+    }
+    let (_, radios) = cache.as_ref()?;
+    radios.iter().find(|r| r.Kind().ok() == Some(kind)).cloned()
 }
 
 fn radio_on(kind: RadioKind) -> (bool, bool) {
@@ -183,7 +193,7 @@ pub async fn set_radio(app: AppHandle, kind: String, on: bool) -> Result<Connect
 /// Open a Windows Settings page. Only known pages are allowed.
 #[tauri::command]
 pub fn open_settings_page(page: String) -> Result<(), String> {
-    const PAGES: [&str; 5] = ["network-wifi", "bluetooth", "sound", "quiethours", "batterysaver"];
+    const PAGES: [&str; 6] = ["network-wifi", "bluetooth", "sound", "quiethours", "batterysaver", "notifications"];
     // "connect-devices" is the Windows connect flyout (Win+K): the supported
     // way to connect an already-paired Bluetooth audio device.
     let uri = if page == "connect-devices" {

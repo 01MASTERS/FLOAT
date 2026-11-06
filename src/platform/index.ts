@@ -56,6 +56,15 @@ export interface BackdropShape {
   bottomRadius: number;
 }
 
+/** False on Windows 10, where FLOAT uses its solid style instead of glass. */
+export async function isGlassSupported(): Promise<boolean> {
+  try {
+    return await invoke<boolean>("glass_supported");
+  } catch {
+    return true;
+  }
+}
+
 /** Position the native blur backdrop under the island (null = no glass). */
 export function setBackdrop(shape: BackdropShape | null): void {
   invoke("set_backdrop", { shape }).catch(() => {});
@@ -104,7 +113,7 @@ export async function subscribeToWindowFocus(
   }
 }
 
-export type IslandCommand = "open" | "toggle";
+export type IslandCommand = "open" | "toggle" | "search" | "paste" | "controls";
 
 /** Commands from the tray icon, global hotkey, or a second app launch. */
 export async function subscribeToIslandCommand(
@@ -113,6 +122,274 @@ export async function subscribeToIslandCommand(
   return await listen<IslandCommand>("island-command", (event) => {
     callback(event.payload);
   });
+}
+
+/** The global hotkey that opens search, or null if none could be registered. */
+export async function getSearchHotkey(): Promise<string | null> {
+  try {
+    return await invoke<string | null>("get_search_hotkey");
+  } catch {
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Search                                                             */
+/* ------------------------------------------------------------------ */
+
+export type SearchKind = "app" | "setting" | "folder" | "file";
+
+export interface SearchResult {
+  kind: SearchKind;
+  name: string;
+  /** "Application", "Settings", or the containing folder. */
+  detail: string;
+  /** AUMID, settings URI or path; also the result's identity. */
+  target: string;
+}
+
+/** Local search over apps, Settings pages and the user's folders. */
+export async function searchEverything(
+  query: string,
+  limit: number,
+  boosts: Record<string, number>
+): Promise<SearchResult[]> {
+  try {
+    return await invoke<SearchResult[]>("search", { query, limit, boosts });
+  } catch {
+    return [];
+  }
+}
+
+/** False until the first index build has finished. */
+export async function isSearchReady(): Promise<boolean> {
+  try {
+    return await invoke<boolean>("search_ready");
+  } catch {
+    return true;
+  }
+}
+
+/** Launch an app, open a setting or file, or reveal a file in Explorer. */
+export async function openSearchResult(target: string, reveal = false): Promise<void> {
+  try {
+    await invoke("search_open", { target, reveal });
+  } catch (e) {
+    console.error("openSearchResult failed:", e);
+  }
+}
+
+/** Base64 PNG shell icon for a file or folder result, or null. */
+export async function getSearchIcon(path: string): Promise<string | null> {
+  try {
+    return await invoke<string | null>("search_icon", { path });
+  } catch {
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Keyboard shortcuts and the Settings window                         */
+/* ------------------------------------------------------------------ */
+
+export type ShortcutAction = "open" | "search" | "text" | "paste" | "mic";
+
+export async function getShortcuts(): Promise<{ action: ShortcutAction; label: string | null }[]> {
+  try {
+    return await invoke("get_shortcuts");
+  } catch {
+    return [];
+  }
+}
+
+/** "Ctrl+Alt+V", "default", or null (off). Resolves to the label in use; rejects with why not. */
+export async function setShortcut(action: ShortcutAction, accelerator: string | null): Promise<string | null> {
+  return await invoke<string | null>("set_shortcut", { action, accelerator });
+}
+
+/** Unregister every shortcut while Settings records a new one. */
+export async function pauseShortcuts(paused: boolean): Promise<void> {
+  try {
+    await invoke("pause_shortcuts", { paused });
+  } catch {
+    // Not in a Tauri context
+  }
+}
+
+/** Open the Settings window, optionally at a section ("updates", "keyboard"...). */
+export async function openSettingsWindow(section?: string): Promise<void> {
+  try {
+    await invoke("open_settings", { section: section ?? null });
+  } catch {
+    // Not in a Tauri context
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Paste into the previous app                                        */
+/* ------------------------------------------------------------------ */
+
+/** Paste a clipboard-history item where the cursor was. False: nowhere to paste. */
+export async function pasteHistoryEntry(id: number): Promise<boolean> {
+  try {
+    return await invoke<boolean>("paste_history_entry", { id });
+  } catch {
+    return false;
+  }
+}
+
+/** Paste text (a pinned snippet) where the cursor was. */
+export async function pasteText(text: string): Promise<boolean> {
+  try {
+    return await invoke<boolean>("paste_text", { text });
+  } catch {
+    return false;
+  }
+}
+
+export async function getPasteHotkey(): Promise<string | null> {
+  try {
+    return await invoke<string | null>("get_paste_hotkey");
+  } catch {
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Microphone mute                                                    */
+/* ------------------------------------------------------------------ */
+
+export async function toggleMicMute(): Promise<boolean | null> {
+  try {
+    return await invoke<boolean | null>("toggle_mic_mute");
+  } catch {
+    return null;
+  }
+}
+
+export async function getMicMuted(): Promise<boolean | null> {
+  try {
+    return await invoke<boolean | null>("get_mic_muted");
+  } catch {
+    return null;
+  }
+}
+
+export async function getMicHotkey(): Promise<string | null> {
+  try {
+    return await invoke<string | null>("get_mic_hotkey");
+  } catch {
+    return null;
+  }
+}
+
+export async function subscribeToMicMuted(callback: (muted: boolean) => void): Promise<UnlistenFn> {
+  return await listen<boolean>("mic-muted", (event) => callback(event.payload));
+}
+
+/* ------------------------------------------------------------------ */
+/*  Copy Text from Anything (on-device OCR)                            */
+/* ------------------------------------------------------------------ */
+
+/** Freeze the screen under the cursor and open the selection overlay. */
+export async function textgrabStart(): Promise<void> {
+  try {
+    await invoke("textgrab_start");
+  } catch {
+    // Not in a Tauri context
+  }
+}
+
+/** The frozen screen (base64 PNG) and its size in physical pixels. */
+export async function textgrabImage(): Promise<[string, number, number] | null> {
+  try {
+    return await invoke<[string, number, number] | null>("textgrab_image");
+  } catch {
+    return null;
+  }
+}
+
+/** Read and copy the text in a box (physical px). Rejects with a readable message. */
+export async function textgrabRecognize(x: number, y: number, width: number, height: number): Promise<number> {
+  return await invoke<number>("textgrab_recognize", { x, y, width, height });
+}
+
+export async function textgrabCancel(): Promise<void> {
+  try {
+    await invoke("textgrab_cancel");
+  } catch {
+    // Not in a Tauri context
+  }
+}
+
+export async function getTextHotkey(): Promise<string | null> {
+  try {
+    return await invoke<string | null>("get_text_hotkey");
+  } catch {
+    return null;
+  }
+}
+
+export async function subscribeToTextGrabbed(callback: (payload: { text: string; lines: number }) => void): Promise<UnlistenFn> {
+  return await listen<{ text: string; lines: number }>("text-grabbed", (event) => callback(event.payload));
+}
+
+/* ------------------------------------------------------------------ */
+/*  Downloads (and Nearby Share, which saves into Downloads)           */
+/* ------------------------------------------------------------------ */
+
+export interface DownloadPayload {
+  name: string;
+  path: string;
+  size: number;
+}
+
+export async function subscribeToDownloads(callback: (payload: DownloadPayload) => void): Promise<UnlistenFn> {
+  return await listen<DownloadPayload>("download-finished", (event) => callback(event.payload));
+}
+
+export async function setDownloadAlerts(enabled: boolean): Promise<void> {
+  try {
+    await invoke("set_download_alerts", { enabled });
+  } catch {
+    // Not in a Tauri context
+  }
+}
+
+export async function openDownload(path: string, reveal = false): Promise<void> {
+  try {
+    await invoke("open_download", { path, reveal });
+  } catch (e) {
+    console.error("openDownload failed:", e);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Updates (manual: only when the user asks)                          */
+/* ------------------------------------------------------------------ */
+
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  available: boolean;
+  notes: string;
+  page: string;
+  channel: "msix" | "setup";
+}
+
+export async function checkForUpdate(): Promise<UpdateInfo> {
+  return await invoke<UpdateInfo>("check_for_update");
+}
+
+/** Download, verify and open the latest installer. Rejects with a readable message. */
+export async function installUpdate(): Promise<void> {
+  await invoke("install_update");
+}
+
+export async function subscribeToUpdateProgress(
+  callback: (progress: { received: number; total: number }) => void
+): Promise<UnlistenFn> {
+  return await listen<{ received: number; total: number }>("update-progress", (event) => callback(event.payload));
 }
 
 /** The global hotkey that opens the island, or null if none could be registered. */
@@ -338,6 +615,22 @@ export interface BluetoothDeviceInfo {
   connected: boolean;
 }
 
+export type SystemCommand = "lock" | "sleep" | "restart" | "shutdown" | "signout" | "dark" | "light" | "recyclebin" | "mic";
+
+/** Run one of the fixed system commands search offers. */
+export async function runSystemCommand(name: SystemCommand): Promise<void> {
+  await invoke("system_command", { name });
+}
+
+/** Battery % a Bluetooth headset or phone reports, or null. */
+export async function getBluetoothBattery(name: string): Promise<number | null> {
+  try {
+    return await invoke<number | null>("bluetooth_battery", { name });
+  } catch {
+    return null;
+  }
+}
+
 /** Paired Bluetooth devices, connected first. */
 export async function getBluetoothDevices(): Promise<BluetoothDeviceInfo[]> {
   try {
@@ -353,6 +646,7 @@ export type SettingsPage =
   | "sound"
   | "quiethours"
   | "batterysaver"
+  | "notifications"
   // Windows' connect flyout (Win+K), for connecting a paired device.
   | "connect-devices";
 
@@ -405,6 +699,8 @@ export interface CalendarEvent {
   allDay: boolean;
   kind: "meeting" | "birthday" | "task" | "all_day";
   location: string | null;
+  /** Teams / Zoom / Meet / Webex link for a Join button. */
+  joinUrl?: string | null;
   feedColor?: string | null;
   feedLabel?: string | null;
 }
@@ -595,7 +891,7 @@ export async function subscribeToFileDrag(callback: (event: FileDragEvent) => vo
 }
 
 export interface AudioLevelsPayload {
-  /** Low, mid, high band levels, 0..1. */
+  /** Six band levels from bass to treble, 0..1. */
   levels: number[];
   silent: boolean;
 }

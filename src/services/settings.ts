@@ -1,10 +1,22 @@
-import { setClipboardHistoryEnabled, setHideInFullscreen } from "../platform";
+import { setClipboardHistoryEnabled, setDownloadAlerts, setHideInFullscreen, setShortcut, ShortcutAction } from "../platform";
+import { emit, listen } from "@tauri-apps/api/event";
+import { saveToDisk } from "./persist";
 
 export type AnimationIntensity = "subtle" | "balanced" | "expressive";
 export type IdleBehavior = "alwaysOrb" | "remember" | "alwaysPill";
 export type RestingMode = "orb" | "compact";
 // auto: black notch when docked, liquid glass when floating.
 export type VisualStyle = "auto" | "glass" | "black";
+// pill: a detached island just below the top edge (iPhone, new MacBook Pro).
+// notch: fused to the screen edge like the older MacBook notch.
+export type IslandShape = "pill" | "notch";
+export type HoverDelay = "short" | "normal" | "long";
+// During a focus session: hold banners and summarise at the end, or just
+// skip banners (the unread dot still shows).
+export type FocusNotifications = "hold" | "quiet";
+// What the idle island shows on its left: nothing, the time, or the time
+// and the date taking turns.
+export type IdleClock = "off" | "time" | "timeDate";
 
 export interface CalendarFeedConfig {
   id: string;
@@ -33,6 +45,20 @@ export interface FloatSettings {
   weatherCity: string;           // city name looked up for weather
   weatherFahrenheit: boolean;    // default false (Celsius)
   calendarUrl: string;           // private ICS link for the calendar widget ("" = off)
+  islandShape: IslandShape;      // "pill" | "notch", default "pill"
+  hoverDelay: HoverDelay;        // how long to rest on the island before it opens, default "normal"
+  scrollVolume: boolean;         // scrolling on the island changes the volume, default true
+  scrollSkip: boolean;           // sideways scrolling skips tracks, default true
+  middleClickPlayPause: boolean; // middle-click on the island plays / pauses, default true
+  downloadAlerts: boolean;       // show finished downloads and Nearby Share files, default true
+  musicWaves: boolean;           // glowing waves behind the player that move with the music, default true
+  focusNotifications: FocusNotifications; // "hold" | "quiet", default "hold"
+  idleClock: IdleClock;          // "off" | "time" | "timeDate", default "off"
+  meetingAlerts: boolean;        // show the next meeting in the island 10 min before, default true
+  autoUpdateCheck: boolean;      // ask GitHub once a day for a newer version and offer it in the island, default true
+  // Keyboard shortcuts the user changed: an accelerator, or null for off.
+  // Missing means FLOAT's default.
+  shortcuts: Partial<Record<ShortcutAction, string | null>>;
   calendarFeeds: CalendarFeedConfig[]; // configured multi-feed list
 }
 
@@ -58,6 +84,18 @@ export const DEFAULT_FLOAT_SETTINGS: FloatSettings = {
   weatherCity: "",
   weatherFahrenheit: false,
   calendarUrl: "",
+  islandShape: "pill",
+  hoverDelay: "normal",
+  scrollVolume: true,
+  scrollSkip: true,
+  middleClickPlayPause: true,
+  downloadAlerts: true,
+  musicWaves: true,
+  focusNotifications: "hold",
+  idleClock: "off",
+  meetingAlerts: true,
+  autoUpdateCheck: true,
+  shortcuts: {},
   calendarFeeds: [],
 };
 
@@ -65,7 +103,8 @@ const SETTINGS_STORAGE_KEY = "float_settings_v1";
 // Bumped when defaults change in a way saved settings should adopt once.
 // v2: MacBook-notch design (solid notch style, island idle, wider activities).
 // v3: real glass; styles become auto / glass / black, transparency = glass tint.
-const SETTINGS_VERSION = 3;
+// v4: the island becomes a detached pill by default, like the new MacBook Pro.
+const SETTINGS_VERSION = 4;
 
 export const GLASS_TINT_MIN = 0.1;
 export const GLASS_TINT_MAX = 0.9;
@@ -80,18 +119,37 @@ export function subscribeToSettings(listener: SettingsListener): () => void {
   };
 }
 
+// Settings saved in another window (Settings <-> island) apply here too.
+const WINDOW_ID = Math.random().toString(36).slice(2);
+listen<string>("float-settings-changed", (event) => {
+  if (event.payload === WINDOW_ID) return;
+  const next = loadSettings();
+  applySettingsToDOM(next);
+  listeners.forEach((l) => l(next));
+}).catch(() => {});
+
+/** Apply saved shortcut changes at startup (the island window only). */
+export function applySavedShortcuts(settings: FloatSettings): void {
+  for (const [action, accelerator] of Object.entries(settings.shortcuts)) {
+    setShortcut(action as ShortcutAction, accelerator ?? null).catch(() => {});
+  }
+}
+
 export function loadSettings(): FloatSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) return DEFAULT_FLOAT_SETTINGS;
     const parsed = JSON.parse(raw);
     if (parsed.settingsVersion !== SETTINGS_VERSION) {
-      const fromBeforeNotch = (parsed.settingsVersion ?? 1) < 2;
-      Object.assign(parsed, {
-        settingsVersion: SETTINGS_VERSION,
-        visualStyle: DEFAULT_FLOAT_SETTINGS.visualStyle,
-        transparency: DEFAULT_FLOAT_SETTINGS.transparency,
-      });
+      const version = parsed.settingsVersion ?? 1;
+      const fromBeforeNotch = version < 2;
+      if (version < 3) {
+        Object.assign(parsed, {
+          visualStyle: DEFAULT_FLOAT_SETTINGS.visualStyle,
+          transparency: DEFAULT_FLOAT_SETTINGS.transparency,
+        });
+      }
+      Object.assign(parsed, { settingsVersion: SETTINGS_VERSION, islandShape: DEFAULT_FLOAT_SETTINGS.islandShape });
       if (fromBeforeNotch) {
         Object.assign(parsed, {
           idleBehavior: DEFAULT_FLOAT_SETTINGS.idleBehavior,
@@ -163,7 +221,11 @@ export function loadSettings(): FloatSettings {
     const bool = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
     const text = (value: unknown, max: number) => (typeof value === "string" ? value.slice(0, max) : "");
 
+    const pick = <T extends string>(value: unknown, options: readonly T[], fallback: T): T =>
+      options.includes(value as T) ? (value as T) : fallback;
+
     // Parse and migrate calendar feeds
+    const legacyCalendarUrl = text(parsed.calendarUrl, 2000);
     let calendarFeeds: CalendarFeedConfig[] = [];
     if (Array.isArray(parsed.calendarFeeds)) {
       calendarFeeds = parsed.calendarFeeds
@@ -177,7 +239,6 @@ export function loadSettings(): FloatSettings {
         }));
     }
 
-    const legacyCalendarUrl = text(parsed.calendarUrl, 2000);
     if (calendarFeeds.length === 0 && legacyCalendarUrl.length > 0) {
       calendarFeeds = [
         {
@@ -191,6 +252,18 @@ export function loadSettings(): FloatSettings {
     }
 
     return {
+      islandShape: pick(parsed.islandShape, ["pill", "notch"] as const, DEFAULT_FLOAT_SETTINGS.islandShape),
+      hoverDelay: pick(parsed.hoverDelay, ["short", "normal", "long"] as const, DEFAULT_FLOAT_SETTINGS.hoverDelay),
+      scrollVolume: bool(parsed.scrollVolume, DEFAULT_FLOAT_SETTINGS.scrollVolume),
+      scrollSkip: bool(parsed.scrollSkip, DEFAULT_FLOAT_SETTINGS.scrollSkip),
+      middleClickPlayPause: bool(parsed.middleClickPlayPause, DEFAULT_FLOAT_SETTINGS.middleClickPlayPause),
+      downloadAlerts: bool(parsed.downloadAlerts, DEFAULT_FLOAT_SETTINGS.downloadAlerts),
+      musicWaves: bool(parsed.musicWaves, DEFAULT_FLOAT_SETTINGS.musicWaves),
+      focusNotifications: pick(parsed.focusNotifications, ["hold", "quiet"] as const, DEFAULT_FLOAT_SETTINGS.focusNotifications),
+      idleClock: pick(parsed.idleClock, ["off", "time", "timeDate"] as const, DEFAULT_FLOAT_SETTINGS.idleClock),
+      meetingAlerts: bool(parsed.meetingAlerts, DEFAULT_FLOAT_SETTINGS.meetingAlerts),
+      autoUpdateCheck: bool(parsed.autoUpdateCheck, DEFAULT_FLOAT_SETTINGS.autoUpdateCheck),
+      shortcuts: parsed.shortcuts && typeof parsed.shortcuts === "object" ? parsed.shortcuts : {},
       weatherEnabled: bool(parsed.weatherEnabled, DEFAULT_FLOAT_SETTINGS.weatherEnabled),
       weatherCity: text(parsed.weatherCity, 80),
       weatherFahrenheit: bool(parsed.weatherFahrenheit, DEFAULT_FLOAT_SETTINGS.weatherFahrenheit),
@@ -224,10 +297,14 @@ export function saveSettings(settings: FloatSettings): void {
       calendarUrl: primaryFeedUrl || settings.calendarUrl || "",
       settingsVersion: SETTINGS_VERSION,
     };
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settingsToSave));
+    const json = JSON.stringify(settingsToSave);
+    localStorage.setItem(SETTINGS_STORAGE_KEY, json);
+    saveToDisk(SETTINGS_STORAGE_KEY, json);
     applySettingsToDOM(settings);
     applySettingsToNative(settings);
     listeners.forEach((l) => l(settings));
+    // The island and the Settings window are separate windows: tell the other.
+    emit("float-settings-changed", WINDOW_ID).catch(() => {});
   } catch (e) {
     console.error("Failed to save FLOAT settings:", e);
   }
@@ -237,6 +314,7 @@ export function saveSettings(settings: FloatSettings): void {
 export function applySettingsToNative(settings: FloatSettings): void {
   setHideInFullscreen(settings.hideInFullscreen);
   setClipboardHistoryEnabled(settings.clipboardHistory);
+  setDownloadAlerts(settings.downloadAlerts);
 }
 
 export function applySettingsToDOM(settings: FloatSettings): void {

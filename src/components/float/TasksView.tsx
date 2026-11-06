@@ -1,15 +1,41 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, CheckCircle2, X } from "lucide-react";
+import { Check, CheckCircle2, Target, X } from "lucide-react";
+import { focus } from "../../activities/focusStore";
 import { Task, taskList, useTasks } from "../../activities/tasksStore";
+import { NotesView } from "./NotesView";
 import "./TasksView.css";
 
-/** To-do list: type, Enter, tick off. Open tasks first, finished ones below. */
-export const TasksView: React.FC = () => {
+export type TasksMode = "tasks" | "notes";
+const MODE_KEY = "float_tasks_mode_v1";
+
+function loadMode(): TasksMode {
+  try {
+    return localStorage.getItem(MODE_KEY) === "notes" ? "notes" : "tasks";
+  } catch {
+    return "tasks";
+  }
+}
+
+/**
+ * Tasks and Quick Notes share a tab: a to-do list (type, Enter, tick off)
+ * and a scratchpad. Opens on whichever was used last.
+ */
+export const TasksView: React.FC<{ mode?: TasksMode; noteId?: string | null }> = ({ mode: requested, noteId = null }) => {
   const tasks = useTasks();
   const [draft, setDraft] = useState("");
+  const [mode, setModeState] = useState<TasksMode>(() => requested ?? loadMode());
   const open = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);
+
+  const setMode = (next: TasksMode) => {
+    setModeState(next);
+    try {
+      localStorage.setItem(MODE_KEY, next);
+    } catch {
+      // Not remembered.
+    }
+  };
 
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -68,11 +94,28 @@ export const TasksView: React.FC = () => {
   return (
     <div className="view tasks-view">
       <div className="view-header">
-        <span className="view-title">Tasks</span>
-        <span className="view-hint">
-          {tasks.length === 0 ? "" : open.length === 0 ? "All done" : `${open.length} to do`}
-        </span>
-        {done.length > 0 && (
+        <div className="segmented" role="tablist" aria-label="Tasks or notes">
+          {(["tasks", "notes"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={mode === m}
+              className={mode === m ? "active" : ""}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMode(m);
+              }}
+              data-no-drag="true"
+            >
+              {m === "tasks" ? "Tasks" : "Notes"}
+            </button>
+          ))}
+        </div>
+        {mode === "tasks" && (
+          <span className="view-hint">{tasks.length === 0 ? "" : open.length === 0 ? "All done" : `${open.length} to do`}</span>
+        )}
+        {mode === "tasks" && done.length > 0 && (
           <button
             type="button"
             className="view-action"
@@ -87,137 +130,155 @@ export const TasksView: React.FC = () => {
         )}
       </div>
 
-      <form
-        className="task-add"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const clean = draft.trim();
-          if (!clean) return;
-          taskList.add(clean);
-          setDraft("");
-        }}
-        onClick={(e) => e.stopPropagation()}
-        data-no-drag="true"
-      >
-        <span className="task-check ghost" />
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Add a task… (Enter)"
-          maxLength={120}
-          data-no-drag="true"
-          spellCheck={false}
-        />
-      </form>
-
-      {tasks.length === 0 ? (
-        <div className="view-empty tasks-empty">
-          <div className="tasks-empty-icon">
-            <CheckCircle2 size={24} strokeWidth={1.8} />
-          </div>
-          <div className="tasks-empty-title">No tasks yet</div>
-          <div className="tasks-empty-desc">Type above to keep a thought for later.</div>
-        </div>
+      {mode === "notes" ? (
+        <NotesView focusNoteId={noteId} />
       ) : (
-        <div className="task-list scroll-area">
-          <AnimatePresence initial={false}>
-            {open.map((t) => {
-              const isEditing = editingTaskId === t.id;
-              const isShaking = shakeTaskId === t.id;
+        <>
+          <form
+            className="task-add"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const clean = draft.trim();
+              if (!clean) return;
+              taskList.add(clean);
+              setDraft("");
+            }}
+          >
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Add a task… (Enter)"
+              maxLength={120}
+              data-no-drag="true"
+              spellCheck={false}
+            />
+          </form>
 
-              return (
-                <motion.div
-                  key={t.id}
-                  className={`task-row ${isShaking ? "task-shake" : ""}`}
-                  layout
-                  initial={{ opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.18, ease: "easeOut" }}
-                >
-                  <button
-                    type="button"
-                    className="task-check"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      taskList.toggle(t.id);
-                    }}
-                    data-no-drag="true"
-                    aria-label="Mark done"
-                  />
-                  {isEditing ? (
-                    <input
-                      ref={editInputRef}
-                      className="task-inline-edit"
-                      value={editTitle}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                      onBlur={() => commitEdit(t)}
-                      onKeyDown={(e) => handleEditKeyDown(e, t)}
-                      maxLength={200}
-                      data-no-drag="true"
-                    />
-                  ) : (
-                    <span
-                      className="task-title"
-                      onDoubleClick={() => startEdit(t)}
-                      title="Double-click to edit"
+          {tasks.length === 0 ? (
+            <div className="view-empty tasks-empty">
+              <div className="tasks-empty-icon">
+                <CheckCircle2 size={24} strokeWidth={1.8} />
+              </div>
+              <div className="tasks-empty-title">No tasks yet</div>
+              <div className="tasks-empty-desc">Type above to keep a thought for later.</div>
+            </div>
+          ) : (
+            <div className="task-list scroll-area">
+              <AnimatePresence initial={false}>
+                {open.map((t) => {
+                  const isEditing = editingTaskId === t.id;
+                  const isShaking = shakeTaskId === t.id;
+
+                  return (
+                    <motion.div
+                      key={t.id}
+                      className={`task-row ${isShaking ? "task-shake" : ""}`}
+                      layout
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ duration: 0.18, ease: "easeOut" }}
                     >
-                      {t.title}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    className="task-delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      taskList.remove(t.id);
-                    }}
-                    data-no-drag="true"
-                    aria-label="Delete task"
-                  >
-                    <X size={12} strokeWidth={2.4} />
-                  </button>
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
+                      <button
+                        type="button"
+                        className="task-check"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          taskList.toggle(t.id);
+                        }}
+                        data-no-drag="true"
+                        aria-label="Mark done"
+                      />
+                      {isEditing ? (
+                        <input
+                          ref={editInputRef}
+                          className="task-inline-edit"
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          onBlur={() => commitEdit(t)}
+                          onKeyDown={(e) => handleEditKeyDown(e, t)}
+                          maxLength={200}
+                          data-no-drag="true"
+                        />
+                      ) : (
+                        <span
+                          className="task-title"
+                          onDoubleClick={() => startEdit(t)}
+                          title="Double-click to edit"
+                        >
+                          {t.title}
+                        </span>
+                      )}
+                      {!isEditing && (
+                        <button
+                          type="button"
+                          className="task-remove task-focus"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            focus.start(t.title, 25, t.id);
+                          }}
+                          data-no-drag="true"
+                          aria-label="Focus on this for 25 minutes"
+                          title="Focus on this for 25 minutes"
+                        >
+                          <Target size={12} strokeWidth={2.4} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="task-delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          taskList.remove(t.id);
+                        }}
+                        data-no-drag="true"
+                        aria-label="Delete task"
+                      >
+                        <X size={12} strokeWidth={2.4} />
+                      </button>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
 
-          {done.length > 0 && (
-            <div className="tasks-done-group">
-              <span className="tasks-done-header">Completed</span>
-              {done.map((t) => (
-                <div key={t.id} className="task-row is-done">
-                  <button
-                    type="button"
-                    className="task-check checked"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      taskList.toggle(t.id);
-                    }}
-                    data-no-drag="true"
-                    aria-label="Mark undone"
-                  >
-                    <Check size={10} strokeWidth={3} />
-                  </button>
-                  <span className="task-title">{t.title}</span>
-                  <button
-                    type="button"
-                    className="task-delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      taskList.remove(t.id);
-                    }}
-                    data-no-drag="true"
-                    aria-label="Delete task"
-                  >
-                    <X size={12} strokeWidth={2.4} />
-                  </button>
+              {done.length > 0 && (
+                <div className="tasks-done-group">
+                  <span className="tasks-done-header">Completed</span>
+                  {done.map((t) => (
+                    <div key={t.id} className="task-row is-done">
+                      <button
+                        type="button"
+                        className="task-check checked"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          taskList.toggle(t.id);
+                        }}
+                        data-no-drag="true"
+                        aria-label="Mark undone"
+                      >
+                        <Check size={10} strokeWidth={3} />
+                      </button>
+                      <span className="task-title">{t.title}</span>
+                      <button
+                        type="button"
+                        className="task-delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          taskList.remove(t.id);
+                        }}
+                        data-no-drag="true"
+                        aria-label="Delete task"
+                      >
+                        <X size={12} strokeWidth={2.4} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );

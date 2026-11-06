@@ -2,6 +2,7 @@ import { CalendarEvent } from "../platform";
 import { MediaSession } from "../platform/media";
 import { MeetingLinkMatch } from "../services/calendar";
 import { TimerState } from "./timerStore";
+import { FocusState } from "./focusStore";
 
 /**
  * Live activities are the things the island can show. At most two are
@@ -12,15 +13,32 @@ export const ActivityPriority = {
   media: 10,
   // A running timer outranks music, which moves to the split bubble.
   timer: 30,
+  // A meeting coming up soon, below a running focus session.
+  meeting: 31,
+  // A focus session outranks music and timers.
+  session: 32,
   calendarAlert: 75,
+  // What came in while you focused.
+  focusSummary: 114,
+  // The session ran out and needs a choice (Done / +5 / Break).
+  sessionEnd: 116,
+  // The meeting is about to start (or just has).
+  meetingNow: 117,
   notification: 100,
   focus: 104,
   privacy: 105,
   bluetooth: 108,
   shelf: 112,
   battery: 110,
+  // A newer FLOAT is out.
+  update: 111,
+  download: 113,
   timerDone: 115,
+  // A ringing phone beats everything but your own adjustments.
+  call: 118,
   // User-initiated feedback wins over everything else.
+  textCopied: 119,
+  mic: 120,
   volume: 120,
   brightness: 120,
 } as const;
@@ -78,6 +96,8 @@ export interface BluetoothActivity {
   priority: number;
   device: string;
   connected: boolean;
+  /** Battery %, once the device reports it. */
+  battery?: number | null;
   isHeadphones?: boolean;
 }
 
@@ -95,6 +115,75 @@ export interface ShelfActivity {
   priority: number;
   /** Number of items just added. */
   count: number;
+}
+
+export interface DownloadActivity {
+  kind: "download";
+  id: string;
+  priority: number;
+  name: string;
+  path: string;
+  /** Arrived with Nearby Share rather than a browser download. */
+  nearby: boolean;
+}
+
+export interface CallActivity {
+  kind: "call";
+  id: string;
+  priority: number;
+  caller: string;
+  /** App showing the call (Phone Link), for its icon. */
+  appId?: string;
+  appName?: string;
+}
+
+export interface SessionActivity {
+  kind: "session";
+  id: string;
+  priority: number;
+  state: FocusState;
+}
+
+export interface MeetingActivity {
+  kind: "meeting";
+  id: string;
+  priority: number;
+  title: string;
+  /** Unix ms. */
+  start: number;
+  joinUrl: string | null;
+}
+
+export interface MicActivity {
+  kind: "mic";
+  id: string;
+  priority: number;
+  muted: boolean;
+}
+
+export interface UpdateActivity {
+  kind: "update";
+  id: string;
+  priority: number;
+  version: string;
+}
+
+export interface TextCopiedActivity {
+  kind: "textCopied";
+  id: string;
+  priority: number;
+  lines: number;
+  /** First line, for the preview. */
+  preview: string;
+}
+
+export interface FocusSummaryActivity {
+  kind: "focusSummary";
+  id: string;
+  priority: number;
+  count: number;
+  /** App names, most frequent first. */
+  apps: string[];
 }
 
 export interface FocusActivity {
@@ -128,6 +217,12 @@ export interface CalendarAlertActivity {
 }
 
 export type Activity =
+  | SessionActivity
+  | MeetingActivity
+  | FocusSummaryActivity
+  | TextCopiedActivity
+  | UpdateActivity
+  | MicActivity
   | TimerActivity
   | TimerDoneActivity
   | NotificationActivity
@@ -139,12 +234,27 @@ export type Activity =
   | FocusActivity
   | BluetoothActivity
   | ShelfActivity
+  | DownloadActivity
+  | CallActivity
   | BrightnessActivity;
 
 /** Short system-status activities rendered by StatusHud. */
-export type StatusActivity = BatteryActivity | PrivacyActivity | FocusActivity | TimerDoneActivity | BluetoothActivity | ShelfActivity | BrightnessActivity;
+export type StatusActivity =
+  | BatteryActivity
+  | PrivacyActivity
+  | FocusActivity
+  | TimerDoneActivity
+  | BluetoothActivity
+  | ShelfActivity
+  | DownloadActivity
+  | CallActivity
+  | FocusSummaryActivity
+  | TextCopiedActivity
+  | MicActivity
+  | BrightnessActivity;
 
-export const isStatusActivity = (a: Activity | null): a is StatusActivity =>
-  a !== null && (a.kind === "battery" || a.kind === "privacy" || a.kind === "focus" || a.kind === "timerDone" || a.kind === "bluetooth" || a.kind === "shelf" || a.kind === "brightness");
+const STATUS_KINDS = new Set<string>(["battery", "privacy", "focus", "timerDone", "bluetooth", "shelf", "download", "call", "focusSummary", "textCopied", "mic", "brightness"]);
+
+export const isStatusActivity = (a: Activity | null): a is StatusActivity => a !== null && STATUS_KINDS.has(a.kind);
 
 export type ActivityKind = Activity["kind"];

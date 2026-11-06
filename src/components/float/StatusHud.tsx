@@ -1,9 +1,11 @@
 import React from "react";
-import { BatteryActivity, StatusActivity } from "../../activities/types";
+import { BatteryActivity, DownloadActivity, StatusActivity } from "../../activities/types";
 import { TimerIcon } from "./Timer";
 import { TrayIcon } from "./Shelf";
 import { formatTimer } from "../../activities/timerStore";
-import { Bluetooth, Headphones, Moon, Speaker, Sun, Zap } from "lucide-react";
+import { ArrowDownToLine, BellDot, Bluetooth, Headphones, Mic, MicOff, ScanText, FolderOpen, Moon, Phone, Share2, Speaker, Sun, Zap } from "lucide-react";
+import { openDownload } from "../../platform";
+import { AppIcon } from "./AppIcon";
 import "./StatusHud.css";
 
 function formatRemainingTime(sec?: number): string | null {
@@ -93,9 +95,60 @@ export const StatusHud: React.FC<{ activity: StatusActivity }> = ({ activity }) 
           <span className="status-hud-detail" title={activity.device}>
             {cleanDeviceName(activity.device)}
           </span>
+          {activity.battery != null && <BatteryBadge percent={activity.battery} />}
         </div>
       );
     }
+    case "download":
+      return <DownloadHud activity={activity} />;
+    case "mic":
+      return (
+        <div className="status-hud">
+          {activity.muted ? (
+            <MicOff className="status-hud-icon mic-off" strokeWidth={2.2} />
+          ) : (
+            <Mic className="status-hud-icon" strokeWidth={2.2} />
+          )}
+          <span className="status-hud-label">{activity.muted ? "Microphone off" : "Microphone on"}</span>
+        </div>
+      );
+    case "textCopied":
+      return (
+        <div className="status-hud">
+          <ScanText className={`status-hud-icon ${activity.lines ? "copied" : ""}`} strokeWidth={2.2} />
+          <span className="status-hud-label">{activity.lines ? "Copied text" : "No text found"}</span>
+          {activity.lines > 0 && (
+            <span className="status-hud-detail" title={activity.preview}>
+              {activity.lines > 1 ? `${activity.lines} lines` : activity.preview}
+            </span>
+          )}
+        </div>
+      );
+    case "focusSummary":
+      return (
+        <div className="status-hud">
+          <BellDot className="status-hud-icon focus" strokeWidth={2.2} />
+          <span className="status-hud-label">
+            {activity.count} {activity.count === 1 ? "notification" : "notifications"} while you focused
+          </span>
+          <span className="status-hud-detail">{activity.apps.slice(0, 2).join(", ")}</span>
+        </div>
+      );
+    case "call":
+      return (
+        <div className="status-hud">
+          {activity.appId ? (
+            <AppIcon appId={activity.appId} appName={activity.appName} size={22} />
+          ) : (
+            <Phone className="status-hud-icon call" fill="currentColor" strokeWidth={0} />
+          )}
+          <span className="status-hud-label status-hud-grow">{activity.caller}</span>
+          <span className="status-hud-call-badge">
+            <Phone size={11} fill="currentColor" strokeWidth={0} />
+            Incoming call
+          </span>
+        </div>
+      );
     case "focus":
       return (
         <div className="status-hud">
@@ -105,6 +158,56 @@ export const StatusHud: React.FC<{ activity: StatusActivity }> = ({ activity }) 
         </div>
       );
   }
+};
+
+const DownloadHud: React.FC<{ activity: DownloadActivity }> = ({ activity }) => {
+  const Icon = activity.nearby ? Share2 : ArrowDownToLine;
+  return (
+    <div className="status-hud">
+      <Icon className="status-hud-icon download" strokeWidth={2.2} />
+      <span className="status-hud-label">{activity.nearby ? "Received" : "Downloaded"}</span>
+      <span className="status-hud-detail status-hud-file" title={activity.name}>
+        {activity.name}
+      </span>
+      <button
+        type="button"
+        className="status-hud-btn"
+        onClick={(e) => {
+          e.stopPropagation();
+          openDownload(activity.path, true);
+        }}
+        data-no-drag="true"
+        aria-label="Show in folder"
+        title="Show in folder"
+      >
+        <FolderOpen size={13} strokeWidth={2.2} />
+      </button>
+      <button
+        type="button"
+        className="status-hud-btn primary"
+        onClick={(e) => {
+          e.stopPropagation();
+          openDownload(activity.path);
+        }}
+        data-no-drag="true"
+      >
+        Open
+      </button>
+    </div>
+  );
+};
+
+/** "80%" with a small battery cell, red when low. */
+const BatteryBadge: React.FC<{ percent: number }> = ({ percent }) => {
+  const low = percent <= 20;
+  return (
+    <span className={`status-hud-battery bt ${low ? "low" : ""}`}>
+      <span className="status-hud-percent">{percent}%</span>
+      <span className="status-hud-cell">
+        <span className="status-hud-cell-fill" style={{ width: `${percent}%` }} />
+      </span>
+    </span>
+  );
 };
 
 export const SunIcon: React.FC<{ className?: string }> = ({ className = "" }) => (

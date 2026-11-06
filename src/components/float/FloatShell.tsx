@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, LayoutGroup, AnimatePresence } from "framer-motion";
 import { FloatPill } from "./FloatPill";
-import { FloatSurface, SurfaceTab } from "./FloatSurface";
+import { FloatSurface, SurfaceRequest, SurfaceTab } from "./FloatSurface";
 import { FloatOrb, OrbNotificationState, OrbFocusState } from "./FloatOrb";
 import { SplitBubble } from "./SplitBubble";
 import { useAlbumArt } from "./useAlbumArt";
@@ -30,9 +30,16 @@ import {
   subscribeToPrivacy,
   getPrivacyState,
   subscribeToBluetoothDevice,
+  isGlassSupported,
+  getBluetoothBattery,
   subscribeToAudioDevice,
   subscribeToFileDrag,
   subscribeToBrightness,
+  subscribeToDownloads,
+  checkForUpdate,
+  subscribeToTextGrabbed,
+  subscribeToMicMuted,
+  getMicMuted,
   getIslandAttached,
   subscribeToIslandAttached,
   islandDragStarted,
@@ -52,6 +59,9 @@ import { useActivities } from "../../activities/useActivities";
 import { Activity, ActivityPriority, isStatusActivity } from "../../activities/types";
 import { useCalendarStore, extractMeetingLink, isToday } from "../../services/calendar";
 import { timer, useTimerState } from "../../activities/timerStore";
+import { focus, focusFinished, useFocusState } from "../../activities/focusStore";
+import { useNextEvent } from "./Widgets";
+import { MicOff } from "lucide-react";
 import { playChime } from "./Timer";
 import { shelf } from "./Shelf";
 import { islandPath } from "../../island/shape";
@@ -82,6 +92,9 @@ const CORNER_SMOOTHING = 0.6;
 const EAR_SIZE = 7;
 const FLOATING_IDLE_WIDTH = 150;
 const FLOATING_IDLE_HEIGHT = 36;
+// The detached pill (default shape) docks a few px below the screen edge,
+// like the Dynamic Island on iPhone and the new MacBook Pro.
+const PILL_DOCK_TOP = 6;
 const SURFACE_WIDTH = 580;
 const SURFACE_HEIGHT = 244;
 const NOTIF_PREVIEW_WIDTH = 240;
@@ -100,6 +113,14 @@ const NOTIFICATION_DWELL_MS = 3500;
 const VOLUME_HUD_MS = 1600;
 const STATUS_HUD_MS = 2600;
 const TIMER_DONE_MS = 10_000;
+const DOWNLOAD_MS = 7000;
+// A call banner stays until the call's notification goes away, at most this long.
+const CALL_MAX_MS = 45_000;
+// A download within this long of a Nearby Share notification came from it.
+const NEARBY_WINDOW_MS = 120_000;
+// Touch: a flick opens/closes; moving the island needs a short hold first.
+const TOUCH_SWIPE_PX = 14;
+const TOUCH_HOLD_TO_MOVE_MS = 350;
 const VOLUME_STEP = 0.02;
 const WHEEL_NOTCH = 100;
 const SKIP_COOLDOWN_MS = 600;
@@ -133,7 +154,8 @@ function recordNotifiedBirthday(dateStr: string, eventId: string) {
     // Ignore storage issues
   }
 }
-const HOVER_OPEN_MS = 280;
+
+const HOVER_OPEN_MS = { short: 140, normal: 280, long: 550 };
 const HOVER_CLOSE_MS = 320;
 
 // Morph spring per Animation Intensity. Damping ratios ~1.0 / 0.78 / 0.62:
@@ -177,7 +199,8 @@ const FloatShell: React.FC = () => {
   const lastClickTimeRef = useRef<number>(0);
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const idleToOrbTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  // `handle`: pressed on the open panel's handle, which moves the island.
+  const dragStartRef = useRef<{ x: number; y: number; handle: boolean } | null>(null);
   const isDraggingRef = useRef(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const hoveringRef = useRef(false);
@@ -185,9 +208,22 @@ const FloatShell: React.FC = () => {
   const openedByHoverRef = useRef(false);
   const [pressed, setPressed] = useState(false);
   const fileDragRef = useRef(false);
+  // Which tab the panel should show when it opens from a command.
+  const [surfaceRequest, setSurfaceRequest] = useState<SurfaceRequest | null>(null);
+  const requestNonceRef = useRef(0);
+  const requestTab = useCallback((tab: SurfaceRequest["tab"]) => {
+    setSurfaceRequest({ tab, nonce: ++requestNonceRef.current });
+  }, []);
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const searchShowingRef = useRef(false);
+  // Windows 10 has no real glass; the island stays solid there.
+  const [glassSupported, setGlassSupported] = useState(true);
+  useEffect(() => {
+    isGlassSupported().then(setGlassSupported);
+  }, []);
+  const pasteShowingRef = useRef(false);
 
   const visualModeRef = useRef(visualMode);
   visualModeRef.current = visualMode;
@@ -211,11 +247,143 @@ const FloatShell: React.FC = () => {
 
   // A running or paused timer / stopwatch is an ongoing activity.
   const timerState = useTimerState();
-  const ongoing = useMemo<Activity[]>(
-    () => (timerState.active ? [{ kind: "timer", id: "timer", priority: ActivityPriority.timer, state: timerState }] : []),
-    [timerState]
-  );
+  const session = useFocusState();
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const sessionDone = focusFinished(session);
+
+  // --- Next meeting: in the island from 10 min before until 5 min after it starts.
+  const nextEvent = useNextEvent();
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setClock(Date.now()), 15_000);
+    return () => clearInterval(id);
+  }, []);
+  const [dismissedMeeting, setDismissedMeeting] = useState<string | null>(null);
+  const meetingKey = nextEvent ? `${nextEvent.title}@${nextEvent.start}` : null;
+  const meetingLive =
+    !!nextEvent &&
+    !nextEvent.allDay &&
+    loadSettings().meetingAlerts &&
+    meetingKey !== dismissedMeeting &&
+    nextEvent.start - clock <= 10 * 60_000 &&
+    clock < nextEvent.start + 5 * 60_000;
+  const meetingSoon = meetingLive && nextEvent!.start - clock <= 2 * 60_000;
+
+  // A meeting starting pauses a running focus session (once per meeting).
+  const pausedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!meetingLive || !nextEvent || clock < nextEvent.start || pausedForRef.current === meetingKey) return;
+    pausedForRef.current = meetingKey;
+    if (sessionRef.current.phase === "focus" && !sessionRef.current.paused) focus.pause("meeting");
+  }, [meetingLive, nextEvent, clock, meetingKey]);
+
+  const ongoing = useMemo<Activity[]>(() => {
+    const list: Activity[] = [];
+    if (session.phase !== "idle") {
+      list.push({
+        kind: "session",
+        id: "session",
+        priority: sessionDone ? ActivityPriority.sessionEnd : ActivityPriority.session,
+        state: session,
+      });
+    }
+    if (meetingLive && nextEvent) {
+      list.push({
+        kind: "meeting",
+        id: "meeting",
+        priority: meetingSoon ? ActivityPriority.meetingNow : ActivityPriority.meeting,
+        title: nextEvent.title,
+        start: nextEvent.start,
+        joinUrl: nextEvent.joinUrl ?? null,
+      });
+    }
+    if (timerState.active) list.push({ kind: "timer", id: "timer", priority: ActivityPriority.timer, state: timerState });
+    return list;
+  }, [timerState, session, sessionDone, meetingLive, meetingSoon, nextEvent]);
   const { primary, secondary, show, dismissKind } = useActivities(activeMedia, ongoing);
+
+  // --- Update available ---------------------------------------------------
+  // Once a day (and shortly after launch) ask GitHub for the latest version.
+  // A newer one is offered once in the island; Later hides it for that version.
+  const updateOfferRef = useRef<{ version: string } | null>(null);
+  const showUpdate = useCallback(
+    (version: string, ms: number) =>
+      show({ kind: "update", id: "update", priority: ActivityPriority.update, version }, ms),
+    [show]
+  );
+  useEffect(() => {
+    const KEY = "float_update_check_v1";
+    const DAY = 24 * 60 * 60_000;
+    const read = (): { at: number; dismissed: string } => {
+      try {
+        return { at: 0, dismissed: "", ...JSON.parse(localStorage.getItem(KEY) || "{}") };
+      } catch {
+        return { at: 0, dismissed: "" };
+      }
+    };
+    const check = () => {
+      if (!settingsRef.current.autoUpdateCheck) return;
+      const saved = read();
+      if (Date.now() - saved.at < DAY) return;
+      checkForUpdate()
+        .then((info) => {
+          try {
+            localStorage.setItem(KEY, JSON.stringify({ ...read(), at: Date.now() }));
+          } catch {
+            // Not saved; it checks again next time.
+          }
+          if (info.available && info.latest !== read().dismissed) {
+            updateOfferRef.current = { version: info.latest };
+            showUpdate(info.latest, 20_000);
+          }
+        })
+        .catch(() => {});
+    };
+    const first = setTimeout(check, 20_000);
+    const every = setInterval(check, 60 * 60_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, [showUpdate]);
+
+  const handleUpdateLater = useCallback(() => {
+    const version = updateOfferRef.current?.version;
+    try {
+      const KEY = "float_update_check_v1";
+      const saved = JSON.parse(localStorage.getItem(KEY) || "{}");
+      localStorage.setItem(KEY, JSON.stringify({ ...saved, dismissed: version ?? "" }));
+    } catch {
+      // Not saved; the offer may come back tomorrow.
+    }
+    dismissKind("update");
+  }, [dismissKind]);
+
+  // While downloading, keep the offer on screen; then let it fade away.
+  const handleUpdateBusy = useCallback(
+    (busy: boolean) => {
+      const version = updateOfferRef.current?.version;
+      if (version) showUpdate(version, busy ? 10 * 60_000 : 6000);
+    },
+    [showUpdate]
+  );
+
+  // A focus phase or break running out: a chime; the island shows the choice.
+  useEffect(() => focus.onPhaseEnd(() => playChime()), []);
+
+  // Notifications held during focus, summarised when it ends.
+  const heldRef = useRef<string[]>([]);
+  const focusActive = session.phase === "focus" && !sessionDone;
+  useEffect(() => {
+    if (focusActive || heldRef.current.length === 0) return;
+    const held = heldRef.current;
+    heldRef.current = [];
+    const counts = new Map<string, number>();
+    held.forEach((app) => counts.set(app, (counts.get(app) ?? 0) + 1));
+    const apps = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([app]) => app);
+    show({ kind: "focusSummary", id: "focusSummary", priority: ActivityPriority.focusSummary, count: held.length, apps }, 8000);
+  }, [focusActive, show]);
 
   useEffect(
     () =>
@@ -367,6 +535,11 @@ const FloatShell: React.FC = () => {
     if (nextMode !== "expanded" || reason !== "hover-open") {
       openedByHoverRef.current = false;
     }
+    if (nextMode !== "expanded") {
+      // The next open starts on Home again.
+      setSurfaceRequest(null);
+      searchShowingRef.current = false;
+    }
     setVisualMode(nextMode);
   }, [clearHoverTimers, clearClickTimer, clearIdleToOrbTimer]);
 
@@ -453,7 +626,6 @@ const FloatShell: React.FC = () => {
 
     if (isDraggingRef.current) return;
     clearIdleToOrbTimer();
-
     if (primaryRef.current?.kind === "notification") {
       clearClickTimer();
       const notif = primaryRef.current;
@@ -473,12 +645,20 @@ const FloatShell: React.FC = () => {
     if (primaryRef.current?.kind === "calendarAlert") {
       clearClickTimer();
       setSurfaceInitialTab("calendar");
+      requestTab("calendar");
       dismissKind("calendarAlert");
       transitionTo("expanded", "calendar-alert-click");
       return;
     }
-    setSurfaceInitialTab("home");
 
+    if (primaryRef.current?.kind === "focusSummary") {
+      requestTab("notifications");
+      dismissKind("focusSummary");
+    } else if (primaryRef.current?.kind === "session") {
+      requestTab("timer");
+    } else {
+      setSurfaceInitialTab("home");
+    }
     // The double-click (pill -> orb) gesture only exists in the orb modes.
     // In Island mode a click opens at once instead of waiting it out.
     if (settingsRef.current.idleBehavior === "alwaysPill") {
@@ -510,7 +690,7 @@ const FloatShell: React.FC = () => {
         }
       }, DOUBLE_TAP_WINDOW_MS);
     }
-  }, [clearClickTimer, clearIdleToOrbTimer, dismissKind, transitionTo]);
+  }, [clearClickTimer, clearIdleToOrbTimer, transitionTo, requestTab, dismissKind, notificationState]);
 
   const handleOrbClick = useCallback(() => {
     if (isDraggingRef.current) return;
@@ -640,9 +820,33 @@ const FloatShell: React.FC = () => {
     let isMounted = true;
     let unlisten: (() => void) | null = null;
     subscribeToIslandCommand((command) => {
-      if (command === "toggle" && visualModeRef.current === "expanded") {
+      const expanded = visualModeRef.current === "expanded";
+      if (command === "controls") {
+        requestTab("controls");
+        if (!expanded) transitionTo("expanded", "command-controls");
+        return;
+      }
+      if (command === "paste") {
+        // The paste key toggles too.
+        if (expanded && pasteShowingRef.current) {
+          collapse();
+          return;
+        }
+        requestTab("paste");
+        if (!expanded) transitionTo("expanded", "command-paste");
+        return;
+      }
+      if (command === "search") {
+        // The search key toggles: press again to put it away.
+        if (expanded && searchShowingRef.current) {
+          collapse();
+          return;
+        }
+        requestTab("search");
+        if (!expanded) transitionTo("expanded", "command-search");
+      } else if (command === "toggle" && expanded) {
         collapse();
-      } else if (visualModeRef.current !== "expanded") {
+      } else if (!expanded) {
         transitionTo("expanded", `command-${command}`);
       }
     }).then((fn) => {
@@ -653,7 +857,7 @@ const FloatShell: React.FC = () => {
       isMounted = false;
       unlisten?.();
     };
-  }, [collapse, transitionTo]);
+  }, [collapse, transitionTo, requestTab]);
 
   // Ambient idle timer: Compact Pill -> ~3s untouched -> Orb
   useEffect(() => {
@@ -725,6 +929,9 @@ const FloatShell: React.FC = () => {
     };
   }, []);
 
+  // The notification behind the current call banner, if any.
+  const callNotificationRef = useRef<number | null>(null);
+
   // Listen to Windows notification presence events
   useEffect(() => {
     let isMounted = true;
@@ -752,6 +959,11 @@ const FloatShell: React.FC = () => {
 
       if (payload.removedId) {
         const remId = payload.removedId;
+        // Answered, declined or missed: the ringing banner goes too.
+        if (remId === callNotificationRef.current) {
+          callNotificationRef.current = null;
+          dismissKind("call");
+        }
         setNotifications((prev) => prev.filter((n) => n.id !== remId));
       }
 
@@ -769,8 +981,38 @@ const FloatShell: React.FC = () => {
           launchArgs: payload.item?.launchArgs,
         });
 
-        if (payload.isNew && cfg.notificationPresence) {
-          if (cfg.notificationPreview) {
+        const item = payload.item;
+        const appText = `${item?.appId ?? ""} ${payload.appName ?? ""}`.toLowerCase();
+        if (payload.isNew && /nearby|nearshare/.test(appText)) {
+          lastNearbyRef.current = Date.now();
+        }
+        // Phone Link rings as a toast; show it as a call activity instead.
+        const isCall =
+          payload.isNew &&
+          /yourphone|phone link|phonelink/.test(appText) &&
+          /incoming|calling|call from|is calling/i.test(`${payload.title ?? ""} ${payload.body ?? ""}`);
+        if (isCall) {
+          callNotificationRef.current = item?.id ?? null;
+          const caller =
+            payload.title && !/incoming call/i.test(payload.title) ? payload.title : payload.body || "Unknown caller";
+          show(
+            {
+              kind: "call",
+              id: "call",
+              priority: ActivityPriority.call,
+              caller: caller.replace(/^(incoming call|call) from\s*/i, ""),
+              appId: item?.appId,
+              appName: payload.appName,
+            },
+            CALL_MAX_MS
+          );
+        } else if (payload.isNew && cfg.notificationPresence) {
+          const s = sessionRef.current;
+          const focusing = s.phase === "focus" && !focusFinished(s);
+          if (focusing && cfg.focusNotifications === "hold") {
+            heldRef.current.push(payload.appName || "An app");
+          }
+          if (cfg.notificationPreview && !focusing) {
             const openedPreview = visualModeRef.current === "orb";
             if (openedPreview) {
               setNotificationPreviewOpen(true);
@@ -813,6 +1055,10 @@ const FloatShell: React.FC = () => {
           notificationTimerRef.current = null;
         }
         dismissKind("notification");
+        if (callNotificationRef.current !== null) {
+          callNotificationRef.current = null;
+          dismissKind("call");
+        }
         setNotificationPreviewOpen(false);
         setNotificationState({
           hasNotification: false,
@@ -963,12 +1209,19 @@ const FloatShell: React.FC = () => {
       if (settingsRef.current.openOnHover) {
         // Rest on the notch briefly and the whole panel opens. A passing
         // cursor, a drag, or a live banner/HUD never triggers it.
-        previewTimerRef.current = setTimeout(() => {
-          if (hoveringRef.current && !isDraggingRef.current && !hasTransientRef.current && !fileDragRef.current) {
-            openedByHoverRef.current = true;
-            transitionTo("expanded", "hover-open");
+        const delay = HOVER_OPEN_MS[settingsRef.current.hoverDelay];
+        const tryOpen = () => {
+          if (!hoveringRef.current || isDraggingRef.current || hasTransientRef.current || fileDragRef.current) return;
+          // Resting on a control (play/pause, dismiss) means "use it", not
+          // "open": wait until the pointer is back on the island itself.
+          if (shellRef.current?.querySelector("button:hover, [data-no-drag]:hover")) {
+            previewTimerRef.current = setTimeout(tryOpen, delay);
+            return;
           }
-        }, HOVER_OPEN_MS);
+          openedByHoverRef.current = true;
+          transitionTo("expanded", "hover-open");
+        };
+        previewTimerRef.current = setTimeout(tryOpen, delay);
       } else if (mode === "compact") {
         previewTimerRef.current = setTimeout(() => {
           if (!isDraggingRef.current) {
@@ -1087,7 +1340,7 @@ const FloatShell: React.FC = () => {
     islandWidth = pillWidth + (isPreview ? PREVIEW_EXTRA_WIDTH : 0);
     islandHeight = isPreview ? PREVIEW_HEIGHT : ACTIVITY_HEIGHT;
     bottomRadius = isPreview ? 20 : 15;
-  } else if (attached) {
+  } else if (attached && settings.islandShape === "notch") {
     // Nothing live: a quiet notch; hovering reveals the time.
     islandWidth = isPreview ? pillWidth : NOTCH_IDLE_WIDTH;
     islandHeight = isPreview ? ACTIVITY_HEIGHT : NOTCH_IDLE_HEIGHT;
@@ -1097,22 +1350,22 @@ const FloatShell: React.FC = () => {
     islandHeight = isPreview ? ACTIVITY_HEIGHT : FLOATING_IDLE_HEIGHT;
     bottomRadius = 18;
   }
-  // Docked: square top, flush with the edge. Floating: a full pill (or a
-  // rounded card when expanded), hanging just below the window top.
-  const docked = attached && !isOrb;
+  // Notch: square top, flush with the edge. Pill (docked below the edge or
+  // floating): a full capsule, or a rounded card when expanded.
+  const docked = attached && !isOrb && settings.islandShape === "notch";
   if (!docked && !isExpanded && !isOrb) {
     bottomRadius = Math.round(islandHeight / 2);
   }
   const topRadius = docked ? 0 : bottomRadius;
-  const islandTop = docked ? 0 : FLOAT_TOP;
+  const islandTop = docked ? 0 : attached && !isOrb ? PILL_DOCK_TOP : FLOAT_TOP;
 
   const bubbleActivity =
     secondary && (visualMode === "compact" || visualMode === "compactPreview") ? secondary : null;
   const hasBubble = bubbleActivity !== null;
 
   // --- Surface: solid black or liquid glass ------------------------------
-  // Auto = the black notch when docked, glass once it floats.
-  const glass = settings.visualStyle === "glass" || (settings.visualStyle === "auto" && !docked);
+  // Auto = black while docked at the top (notch or pill), glass once it floats.
+  const glass = glassSupported && (settings.visualStyle === "glass" || (settings.visualStyle === "auto" && !(attached && !isOrb)));
   const glassRef = useRef(glass);
   glassRef.current = glass;
   // Floating pills and the orb are true capsules; everything else uses
@@ -1248,22 +1501,67 @@ const FloatShell: React.FC = () => {
     return () => clearTimeout(settle);
   }, [islandWidth, islandHeight, islandTop, hasBubble]);
 
+  const touchRef = useRef<{ touch: boolean; at: number }>({ touch: false, at: 0 });
+
   const handlePointerDown = (e: React.PointerEvent) => {
+    // Roomier controls while the island is being used by touch.
+    document.documentElement.dataset.input = e.pointerType === "touch" ? "touch" : "mouse";
+    if (e.button === 1) {
+      // Middle-click: play / pause, like a headset button.
+      if (settingsRef.current.middleClickPlayPause && activeMedia?.hasMedia && visualModeRef.current !== "expanded") {
+        e.preventDefault();
+        mediaPlayPause(activeMedia.id);
+      }
+      return;
+    }
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    if (target.closest("button, a, input, [data-no-drag]")) return;
+    const handle = !!target.closest("[data-drag-handle]");
+    if (!handle && target.closest("button, a, input, [data-no-drag]")) {
+      // Pressing a control is never the start of a hover-open.
+      clearHoverTimers();
+      return;
+    }
+    // The open panel moves only by its handle, and flicks closed only from
+    // its top bar, so clicking, selecting and scrolling inside never drag it.
+    if (visualModeRef.current === "expanded" && !handle && !target.closest(".float-surface-top-bar")) {
+      clearHoverTimers();
+      return;
+    }
 
     clearHoverTimers();
     clearIdleToOrbTimer();
     isDraggingRef.current = false;
-    dragStartRef.current = { x: e.screenX, y: e.screenY };
+    dragStartRef.current = { x: e.screenX, y: e.screenY, handle };
+    touchRef.current = { touch: e.pointerType === "touch", at: Date.now() };
     setPressed(true);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!dragStartRef.current) return;
-    const dx = e.screenX - dragStartRef.current.x;
-    const dy = e.screenY - dragStartRef.current.y;
+    const start = dragStartRef.current;
+    if (!start) return;
+    const dx = e.screenX - start.x;
+    const dy = e.screenY - start.y;
+
+    // Touch: flick down to open, flick up to close. Moving the island
+    // needs a short hold first, so a flick is never mistaken for a drag;
+    // the panel's handle is for moving, so it moves at once.
+    if (touchRef.current.touch && !start.handle) {
+      const vertical = Math.abs(dy) > Math.abs(dx) * 1.4;
+      const held = Date.now() - touchRef.current.at >= TOUCH_HOLD_TO_MOVE_MS;
+      if (!held) {
+        const expanded = visualModeRef.current === "expanded";
+        if (vertical && !expanded && dy > TOUCH_SWIPE_PX && primaryRef.current?.kind !== "notification") {
+          dragStartRef.current = null;
+          setPressed(false);
+          transitionTo("expanded", "touch-swipe-down");
+        } else if (vertical && expanded && dy < -TOUCH_SWIPE_PX) {
+          dragStartRef.current = null;
+          collapse();
+        }
+        if (primaryRef.current?.kind !== "notification") return;
+      }
+    }
 
     // Swipe up on a notification banner dismisses it instead of dragging.
     if (primaryRef.current?.kind === "notification" && dy < -SWIPE_DISMISS_PX && Math.abs(dy) > Math.abs(dx)) {
@@ -1275,8 +1573,9 @@ const FloatShell: React.FC = () => {
       return;
     }
     const dist = Math.sqrt(dx * dx + dy * dy);
+    const movable = visualModeRef.current !== "expanded" || start.handle;
 
-    if (dist > 5) {
+    if (dist > 5 && movable) {
       clearHoverTimers();
       clearClickTimer();
       clearIdleToOrbTimer();
@@ -1322,13 +1621,14 @@ const FloatShell: React.FC = () => {
 
   const handleWheel = (e: React.WheelEvent) => {
     if (visualModeRef.current === "expanded") return;
+    const cfg = settingsRef.current;
     // Scrolling means "adjust", not "open": cancel a pending hover-open.
     clearHoverTimers();
     const wheel = wheelRef.current;
     const horizontal = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
 
     if (horizontal) {
-      if (!activeMedia?.hasMedia) return;
+      if (!cfg.scrollSkip || !activeMedia?.hasMedia) return;
       wheel.skip += e.shiftKey ? e.deltaY : e.deltaX;
       const now = Date.now();
       if (Math.abs(wheel.skip) >= WHEEL_NOTCH && now - wheel.lastSkip > SKIP_COOLDOWN_MS) {
@@ -1339,6 +1639,7 @@ const FloatShell: React.FC = () => {
       return;
     }
 
+    if (!cfg.scrollVolume) return;
     // One mouse-wheel notch (deltaY 100) = 2%. Touchpads send many small
     // deltas, so batch them into one native call per flush.
     wheel.volumeDelta += (-e.deltaY / WHEEL_NOTCH) * VOLUME_STEP;
@@ -1352,7 +1653,22 @@ const FloatShell: React.FC = () => {
     }
   };
 
+  // --- Microphone mute ----------------------------------------------------
+  const [micMuted, setMicMuted] = useState(false);
+  useEffect(() => {
+    getMicMuted().then((m) => setMicMuted(!!m));
+    const unlisten = subscribeToMicMuted((muted) => {
+      setMicMuted(muted);
+      show({ kind: "mic", id: "mic", priority: ActivityPriority.mic, muted }, VOLUME_HUD_MS);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [show]);
+
   // --- System status activities ------------------------------------------
+  // When Nearby Share last posted a notification (its files land in Downloads).
+  const lastNearbyRef = useRef(0);
   const [privacy, setPrivacy] = useState<PrivacyState>({ microphone: null, camera: null });
   const privacyRef = useRef(privacy);
 
@@ -1362,6 +1678,21 @@ const FloatShell: React.FC = () => {
 
     // Hardware volume keys and other apps changing the volume.
     unlisteners.push(subscribeToVolumeChanged((state) => showVolume(state)));
+
+    unlisteners.push(subscribeToTextGrabbed(({ text, lines }) => {
+      show(
+        { kind: "textCopied", id: "textCopied", priority: ActivityPriority.textCopied, lines, preview: text.split("\n")[0] ?? "" },
+        STATUS_HUD_MS
+      );
+    }));
+
+    unlisteners.push(subscribeToDownloads(({ name, path }) => {
+      const nearby = Date.now() - lastNearbyRef.current < NEARBY_WINDOW_MS;
+      show(
+        { kind: "download", id: `download:${path}`, priority: ActivityPriority.download, name, path, nearby },
+        DOWNLOAD_MS
+      );
+    }));
 
     unlisteners.push(subscribeToBrightness((level) => {
       show({ kind: "brightness", id: "brightness", priority: ActivityPriority.brightness, level }, VOLUME_HUD_MS);
@@ -1376,6 +1707,21 @@ const FloatShell: React.FC = () => {
         { kind: "bluetooth", id: "bluetooth", priority: ActivityPriority.bluetooth, device: name, connected, isHeadphones },
         STATUS_HUD_MS
       );
+      // Headsets report their battery a few seconds after connecting.
+      if (connected) {
+        const ask = (tries: number) =>
+          getBluetoothBattery(name).then((battery) => {
+            if (battery != null) {
+              show(
+                { kind: "bluetooth", id: "bluetooth", priority: ActivityPriority.bluetooth, device: name, connected, battery },
+                STATUS_HUD_MS + 1000
+              );
+            } else if (tries > 1) {
+              setTimeout(() => ask(tries - 1), 2500);
+            }
+          });
+        setTimeout(() => ask(4), 2500);
+      }
     }));
 
     unlisteners.push(subscribeToAudioDevice(({ name, isHeadphones }) => {
@@ -1469,25 +1815,44 @@ const FloatShell: React.FC = () => {
     >
       <svg className="island-outline" aria-hidden="true">
         <defs>
-          <linearGradient id="island-rim" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#fff" stopOpacity="0.5" />
-            <stop offset="0.5" stopColor="#fff" stopOpacity="0.12" />
-            <stop offset="1" stopColor="#fff" stopOpacity="0.2" />
+          {/* Glass: light catches the top-left and bottom-right corners. */}
+          <linearGradient id="island-rim" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#fff" stopOpacity="0.9" />
+            <stop offset="0.18" stopColor="#fff" stopOpacity="0.3" />
+            <stop offset="0.45" stopColor="#fff" stopOpacity="0.1" />
+            <stop offset="0.6" stopColor="#fff" stopOpacity="0.1" />
+            <stop offset="0.85" stopColor="#fff" stopOpacity="0.45" />
+            <stop offset="1" stopColor="#fff" stopOpacity="0.7" />
           </linearGradient>
-          <linearGradient id="island-gloss" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#fff" stopOpacity="0.13" />
-            <stop offset="0.45" stopColor="#fff" stopOpacity="0.02" />
-            <stop offset="1" stopColor="#000" stopOpacity="0.06" />
+          <radialGradient id="island-gloss" cx="0.3" cy="-0.2" r="1.1">
+            <stop offset="0" stopColor="#fff" stopOpacity="0.18" />
+            <stop offset="0.55" stopColor="#fff" stopOpacity="0" />
+          </radialGradient>
+          {/* The rim gathers light, like the edge of a lens, and the bottom sinks into shade. */}
+          <linearGradient id="island-edge" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#fff" stopOpacity="0.2" />
+            <stop offset="0.6" stopColor="#fff" stopOpacity="0.08" />
+            <stop offset="1" stopColor="#000" stopOpacity="0.3" />
           </linearGradient>
+          <filter id="island-edge-blur" x="-10%" y="-10%" width="120%" height="120%">
+            <feGaussianBlur stdDeviation="6" />
+          </filter>
         </defs>
         <g ref={outlineRef}>
+          <clipPath id="island-shape">
+            <path />
+          </clipPath>
           <path className="island-fill" />
+          <g clipPath="url(#island-shape)">
+            <path className="island-edge" />
+          </g>
           <path className="island-gloss" />
           <path className="island-rim" />
         </g>
       </svg>
-      {(privacy.camera || privacy.microphone) && (
+      {(privacy.camera || privacy.microphone || micMuted) && (
         <span className="privacy-dots" aria-label="Camera or microphone in use">
+          {micMuted && <MicOff className="privacy-mic-off" strokeWidth={2.6} aria-label="Microphone muted" />}
           {privacy.camera && <span className="privacy-dot camera" title={`Camera: ${privacy.camera}`} />}
           {privacy.microphone && <span className="privacy-dot microphone" title={`Microphone: ${privacy.microphone}`} />}
         </span>
@@ -1506,6 +1871,11 @@ const FloatShell: React.FC = () => {
             onDismissNotification={handleDismissNotificationItem}
             onClearAllNotifications={handleClearAllNotifications}
             focusActive={focusState?.status === "active"}
+            request={surfaceRequest}
+            onTabChange={(tab) => {
+              searchShowingRef.current = tab === "search";
+              pasteShowingRef.current = tab === "paste";
+            }}
           />
         ) : isOrb ? (
           <FloatOrb
@@ -1545,11 +1915,18 @@ const FloatShell: React.FC = () => {
             isNotificationActive={isNotificationActive}
             onDismissNotification={handleDismissNotification}
             showContent={settings.notificationContent}
+            idleClock={settings.idleClock}
             calendarAlert={primary?.kind === "calendarAlert" ? primary : null}
             onDismissAlert={() => dismissKind("calendarAlert")}
             volume={primary?.kind === "volume" ? primary : null}
             status={isStatusActivity(primary) ? primary : null}
             timer={primary?.kind === "timer" ? primary : null}
+            session={primary?.kind === "session" ? primary : null}
+            meeting={primary?.kind === "meeting" ? primary : null}
+            onDismissMeeting={() => setDismissedMeeting(meetingKey)}
+            update={primary?.kind === "update" ? primary : null}
+            onUpdateLater={handleUpdateLater}
+            onUpdateBusy={handleUpdateBusy}
             dropCount={showDrop ? fileDrag : null}
             onVolumeChange={showVolume}
           />

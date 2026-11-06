@@ -37,6 +37,8 @@ pub struct CalendarEvent {
     pub end: i64,
     pub all_day: bool,
     pub location: Option<String>,
+    /// Teams / Zoom / Meet / Webex link found in the event, for a Join button.
+    pub join_url: Option<String>,
     pub kind: String, // "meeting" | "birthday" | "task" | "all_day"
     pub feed_color: Option<String>,
     pub feed_label: Option<String>,
@@ -46,6 +48,9 @@ pub struct CalendarEvent {
 struct RawEvent {
     summary: String,
     location: Option<String>,
+    description: String,
+    /// Some calendars (Google) put the meeting link in its own property.
+    conference: Option<String>,
     dtstart: Option<String>, // full line, e.g. "DTSTART;TZID=Europe/Paris:20260101T090000"
     dtend_value: Option<String>,
     due_value: Option<String>,
@@ -68,6 +73,7 @@ static CACHE: Mutex<Option<HashMap<String, CacheEntry>>> = Mutex::new(None);
 struct RawParsed {
     title: String,
     location: Option<String>,
+    join_url: Option<String>,
     set: RRuleSet,
     duration: ChronoDuration,
     all_day: bool,
@@ -136,6 +142,8 @@ fn parse_events(ics: &str, feed_label: Option<&str>, feed_color: Option<&str>) -
         match key.as_str() {
             "SUMMARY" => event.summary = unescape(value),
             "LOCATION" => event.location = Some(unescape(value)).filter(|l| !l.trim().is_empty()),
+            "DESCRIPTION" => event.description = unescape(value),
+            "URL" | "X-GOOGLE-CONFERENCE" | "CONFERENCE" => event.conference = Some(value.to_string()),
             "DTSTART" => event.dtstart = Some(line.clone()),
             "DTEND" => event.dtend_value = Some(value.to_string()),
             "DUE" => {
@@ -239,6 +247,10 @@ fn finish(mut event: RawEvent, feed_label: Option<&str>, feed_color: Option<&str
         "meeting".to_string()
     };
 
+    let join_url = [event.conference.as_deref(), event.location.as_deref(), Some(event.description.as_str())]
+        .into_iter()
+        .flatten()
+        .find_map(meeting_link);
     Some(RawParsed {
         title: if event.summary.trim().is_empty() {
             if event.is_task { "Task".into() } else { "Busy".into() }
@@ -246,6 +258,7 @@ fn finish(mut event: RawEvent, feed_label: Option<&str>, feed_color: Option<&str
             event.summary
         },
         location: event.location,
+        join_url,
         set,
         duration,
         all_day,
@@ -253,6 +266,28 @@ fn finish(mut event: RawEvent, feed_label: Option<&str>, feed_color: Option<&str
         feed_color: feed_color.map(String::from),
         feed_label: feed_label.map(String::from),
     })
+}
+
+/// Hosts of online-meeting links worth a Join button.
+const MEETING_HOSTS: [&str; 6] = [
+    "teams.microsoft.com",
+    "teams.live.com",
+    "zoom.us",
+    "meet.google.com",
+    "webex.com",
+    "whereby.com",
+];
+
+/// The first online-meeting https link in `text`, if any.
+fn meeting_link(text: &str) -> Option<String> {
+    text.split(|c: char| c.is_whitespace() || "<>\"'()[]".contains(c))
+        .filter(|w| w.starts_with("https://"))
+        .map(|w| w.trim_end_matches(|c: char| ".,;".contains(c)))
+        .find(|w| {
+            let host = w["https://".len()..].split('/').next().unwrap_or("").to_ascii_lowercase();
+            MEETING_HOSTS.iter().any(|h| host == *h || host.ends_with(&format!(".{h}")))
+        })
+        .map(str::to_string)
 }
 
 fn upcoming(events: &[RawParsed], now: DateTime<Utc>) -> Vec<CalendarEvent> {
@@ -304,6 +339,7 @@ fn upcoming(events: &[RawParsed], now: DateTime<Utc>) -> Vec<CalendarEvent> {
                 end: end_ms,
                 all_day: event.all_day,
                 location: event.location.clone(),
+                join_url: event.join_url.clone(),
                 kind: event.kind.clone(),
                 feed_color: event.feed_color.clone(),
                 feed_label: event.feed_label.clone(),
@@ -313,6 +349,21 @@ fn upcoming(events: &[RawParsed], now: DateTime<Utc>) -> Vec<CalendarEvent> {
     out.sort_by_key(|e| e.start);
     out.truncate(MAX_EVENTS);
     out
+}
+
+/// A readable reason a calendar link failed.
+fn explain(url: &str, e: ureq::Error) -> String {
+    match e {
+        // Google's "public address" only works for calendars shared publicly.
+        ureq::Error::StatusCode(404) if url.contains("calendar.google.com") && url.contains("/public/") => {
+            "This is the calendar's public address, and the calendar isn't public. In Google Calendar, copy \"Secret address in iCal format\" instead".into()
+        }
+        ureq::Error::StatusCode(401 | 403 | 404) => {
+            "The calendar server didn't accept this link. Copy the private (secret) iCal address again".into()
+        }
+        ureq::Error::StatusCode(code) => format!("The calendar server answered with an error ({code})"),
+        other => format!("Couldn't reach the calendar: {other}"),
+    }
 }
 
 fn fetch(url: &str) -> Result<String, String> {
@@ -329,7 +380,7 @@ fn fetch(url: &str) -> Result<String, String> {
     let body = agent
         .get(&url)
         .call()
-        .map_err(|e| e.to_string())?
+        .map_err(|e| explain(&url, e))?
         .body_mut()
         .with_config()
         .limit(8 * 1024 * 1024)
@@ -473,6 +524,41 @@ mod tests {
         let events = parse_events(ICS, None, None);
         let now = Utc.with_ymd_and_hms(2026, 1, 7, 9, 5, 0).unwrap();
         assert_eq!(upcoming(&events, now)[0].title, "Standup");
+    }
+
+    #[test]
+    fn finds_meeting_links() {
+        let teams = "Join: https://teams.microsoft.com/l/meetup-join/19%3a/0?context=x\\nMore";
+        assert!(meeting_link(teams).unwrap().starts_with("https://teams.microsoft.com/l/meetup-join/"));
+        assert_eq!(meeting_link("https://us02web.zoom.us/j/123.").as_deref(), Some("https://us02web.zoom.us/j/123"));
+        assert_eq!(meeting_link("see https://example.com/zoom.us"), None);
+        assert_eq!(meeting_link("Room 4"), None);
+    }
+
+    #[test]
+    fn explains_a_public_google_link() {
+        let public = "https://calendar.google.com/calendar/ical/me%40gmail.com/public/basic.ics";
+        assert!(explain(public, ureq::Error::StatusCode(404)).contains("Secret address in iCal format"));
+        assert!(explain("https://outlook.office365.com/x.ics", ureq::Error::StatusCode(404)).contains("private"));
+    }
+
+    /// Debug against a real calendar: FLOAT_CAL_FILE = path holding the link.
+    #[test]
+    #[ignore]
+    fn real_calendar_times() {
+        let url = std::fs::read_to_string(std::env::var("FLOAT_CAL_FILE").unwrap()).unwrap();
+        let ics = fetch(&url).expect("fetch");
+        let now = Utc::now();
+        println!("now {}", now.with_timezone(&chrono::Local));
+        for e in upcoming(&parse_events(&ics, None, None), now) {
+            let start = DateTime::from_timestamp_millis(e.start).unwrap().with_timezone(&chrono::Local);
+            let end = DateTime::from_timestamp_millis(e.end).unwrap().with_timezone(&chrono::Local);
+            println!("event title_len={} all_day={} start={} end={}", e.title.len(), e.all_day, start, end);
+        }
+        for line in ics.lines().filter(|l| l.starts_with("DTSTART") || l.starts_with("DTEND") || l.starts_with("RRULE")).take(12) {
+            // Times and rules only.
+            println!("raw {}", line);
+        }
     }
 
     #[test]

@@ -5,6 +5,8 @@ import { CurrentLyric } from "./Lyrics";
 import { WeatherChip } from "./Widgets";
 import { useHomeCalendarEvent } from "../../services/calendar";
 import { useTasks } from "../../activities/tasksStore";
+import { loadSettings, subscribeToSettings } from "../../services/settings";
+import { MusicWaves } from "./MusicWaves";
 import "./HomeView.css";
 
 interface HomeViewProps {
@@ -39,9 +41,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
 }) => {
   const now = useNow(10_000);
   const playing = !!media?.hasMedia;
+  const [waves, setWaves] = useState(() => loadSettings().musicWaves);
+  useEffect(() => subscribeToSettings((s) => setWaves(s.musicWaves)), []);
 
   return (
     <div className="home">
+      {playing && waves && <MusicWaves playing={!!media?.isPlaying} accentKey={`${media?.id}:${media?.title}`} />}
       <div className="home-main">
         {playing ? (
           <MediaWidgetSurface

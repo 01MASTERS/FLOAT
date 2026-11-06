@@ -1,20 +1,11 @@
-//! System tray icon, global hotkey and the commands they send to the island.
+//! System tray icon, and what it and the global shortcuts send to the island.
 
 use serde::Serialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
-
-/// Tried in order; the first combination no other app owns wins.
-const HOTKEYS: [(Modifiers, Code, &str); 3] = [
-    (Modifiers::CONTROL.union(Modifiers::ALT), Code::Space, "Ctrl+Alt+Space"),
-    (Modifiers::ALT.union(Modifiers::SHIFT), Code::Space, "Alt+Shift+Space"),
-    (Modifiers::CONTROL.union(Modifiers::ALT), Code::KeyI, "Ctrl+Alt+I"),
-];
-
-/// The hotkey that was actually registered, if any.
-pub struct ActiveHotkey(Option<&'static str>);
+use crate::hotkeys::{self, Action};
+use tauri_plugin_global_shortcut::ShortcutState;
 
 /// Sent to the frontend as `island-command`.
 #[derive(Clone, Copy, Serialize)]
@@ -22,6 +13,12 @@ pub struct ActiveHotkey(Option<&'static str>);
 pub enum IslandCommand {
     Open,
     Toggle,
+    /// Open straight into search (or close it if it's showing).
+    Search,
+    /// Open the paste picker.
+    Paste,
+    /// Open on the Controls tab (`float.exe --controls`).
+    Controls,
 }
 
 struct TrayItems {
@@ -48,29 +45,41 @@ pub fn sync_autostart(app: &AppHandle, enabled: bool) {
     }
 }
 
-fn register_hotkey(app: &tauri::App) -> Option<&'static str> {
-    for (mods, code, label) in HOTKEYS {
-        match app.global_shortcut().register(Shortcut::new(Some(mods), code)) {
-            Ok(()) => return Some(label),
-            Err(e) => dlog!("[TRAY] {} unavailable: {}", label, e),
-        }
-    }
-    eprintln!("[TRAY] No global hotkey could be registered");
-    None
+// The frontend asks for each shortcut's label to show it.
+#[tauri::command]
+pub fn get_hotkey(app: AppHandle) -> Option<String> {
+    hotkeys::label_for(&app, Action::Open)
 }
 
 #[tauri::command]
-pub fn get_hotkey(state: tauri::State<'_, ActiveHotkey>) -> Option<String> {
-    state.0.map(str::to_string)
+pub fn get_paste_hotkey(app: AppHandle) -> Option<String> {
+    hotkeys::label_for(&app, Action::Paste)
+}
+
+#[tauri::command]
+pub fn get_mic_hotkey(app: AppHandle) -> Option<String> {
+    hotkeys::label_for(&app, Action::Mic)
+}
+
+#[tauri::command]
+pub fn get_text_hotkey(app: AppHandle) -> Option<String> {
+    hotkeys::label_for(&app, Action::Text)
+}
+
+#[tauri::command]
+pub fn get_search_hotkey(app: AppHandle) -> Option<String> {
+    hotkeys::label_for(&app, Action::Search)
 }
 
 pub fn init(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let hotkey = register_hotkey(app);
-    app.manage(ActiveHotkey(hotkey));
+    hotkeys::init(app);
+    let hotkey = hotkeys::label_for(app.handle(), Action::Open);
 
     let visible = CheckMenuItem::with_id(app, "visible", "Show Island", true, true, None::<&str>)?;
-    let open = MenuItem::with_id(app, "open", "Open Island", true, hotkey)?;
+    let open = MenuItem::with_id(app, "open", "Open Island", true, hotkey.as_deref())?;
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let reset = MenuItem::with_id(app, "reset", "Reset Position", true, None::<&str>)?;
+    let updates = MenuItem::with_id(app, "updates", "Check for Updates…", true, None::<&str>)?;
     let autostart =
         CheckMenuItem::with_id(app, "autostart", "Launch at Startup", true, false, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit FLOAT", true, None::<&str>)?;
@@ -79,6 +88,9 @@ pub fn init(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         &[
             &open,
             &visible,
+            &PredefinedMenuItem::separator(app)?,
+            &settings,
+            &updates,
             &PredefinedMenuItem::separator(app)?,
             &reset,
             &autostart,
@@ -98,6 +110,8 @@ pub fn init(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => command_island(app, IslandCommand::Open),
+            "settings" => crate::settingswin::open(app, None),
+            "updates" => crate::settingswin::open(app, Some("updates-check")),
             "visible" => {
                 let hidden = !crate::window::is_user_hidden(app);
                 crate::window::set_user_hidden(app, hidden);
@@ -142,9 +156,24 @@ pub fn init(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<Wry> {
     tauri_plugin_global_shortcut::Builder::new()
-        .with_handler(|app, _shortcut, event| {
-            if event.state() == ShortcutState::Pressed {
-                command_island(app, IslandCommand::Toggle);
+        .with_handler(|app, shortcut, event| {
+            if event.state() != ShortcutState::Pressed {
+                return;
+            }
+            match hotkeys::action_for(app, shortcut) {
+                Some(Action::Text) => crate::textgrab::start(app),
+                Some(Action::Paste) => {
+                    // Before the island takes focus: that's where we'll paste.
+                    crate::paste::remember_foreground(app);
+                    command_island(app, IslandCommand::Paste);
+                }
+                // Off the event loop; sysmon announces the new state.
+                Some(Action::Mic) => {
+                    std::thread::spawn(crate::micmute::toggle);
+                }
+                Some(Action::Search) => command_island(app, IslandCommand::Search),
+                Some(Action::Open) => command_island(app, IslandCommand::Toggle),
+                None => {}
             }
         })
         .build()

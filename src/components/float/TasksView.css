@@ -124,6 +124,7 @@
 
 .task-remove,
 .task-delete {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -136,7 +137,24 @@
   color: var(--text-2);
   opacity: 0;
   cursor: pointer;
-  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+
+.task-remove:active,
+.task-delete:active {
+  transform: scale(0.88);
+}
+
+.task-focus:hover {
+  color: var(--focus);
+}
+
+:root[data-input="touch"] .task-remove,
+:root[data-input="touch"] .task-delete {
+  opacity: 1;
+  width: 28px;
+  height: 28px;
+}
 }
 
 .task-row:hover .task-remove,

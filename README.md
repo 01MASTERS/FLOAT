@@ -4,15 +4,16 @@ A Dynamic Island for Windows.
 
 FLOAT is a lightweight MacBook-style notch for Windows. It hangs from the top of your screen and brings media controls, a live audio visualizer, Windows notifications, a volume HUD and quick settings into one place.
 
-## FLOAT v2.0.0
+## FLOAT v3.1.0
 
-A ground-up redesign: a MacBook-style notch with real liquid glass, a calm focused panel, and a set of everyday tools. See [CHANGELOG.md](CHANGELOG.md) for everything that changed.
+The time (and date) on the idle island, and FLOAT's own icon. Plus, from 3.0: a new Settings window, your data saved with daily backups and export, a What's new card after updates, Copy diagnostics, and a lighter, sturdier island. Plus, from 2.3: Clipboard superpowers (paste history and pinned snippets anywhere with Ctrl+Alt+V), mic mute, earbud battery, Quick Notes and commands in search. Plus, from 2.2: Focus Sessions that turn the island into your current task, a meeting countdown with Join, and Copy Text from Anything (Live Text for Windows). Plus, from 2.1: search apps, files and settings right from the island, a detached pill shape, download and call activities, mouse and touch controls, and updates from inside the app. See [CHANGELOG.md](CHANGELOG.md) for everything that changed.
 
 ---
 
 ## ✨ Features
 
-- **MacBook-Style Notch**: Solid black, flush with the top edge, with concave corners that join it to the bezel. It grows downward to fit whatever is live: a quiet notch when idle, a slim strip for music, a taller drop-down for notifications.
+- **Search in the Island**: Find apps, Settings pages, files and folders, and get instant sums and unit conversions. Open it with the search icon, Alt+Space (when free), or just start typing in the open panel. Everything is searched locally.
+- **Dynamic Island or Notch**: By default a black pill just below the top edge, like the new MacBook Pro; or, in Settings, a notch flush with the top edge. It grows to fit whatever is live: music, notifications, downloads, calls.
 - **Optional Orb Mode**: Prefer a floating circle? Set Idle Behavior to Orb and the island shrinks to a 48×48 orb after ~3 seconds untouched.
 - **Interactive Awakening**: Hovering over or interacting with the Orb smoothly restores the active compact pill.
 - **Spotify & Windows GSMTC Media Integration**: Universal support for Spotify, Apple Music, YouTube, and browser playback via Windows Global System Media Transport Controls.
@@ -87,21 +88,33 @@ Pill / Orb ──( Click )──► Expanded Surface [ Media | Notifications | S
 
 ## 🖼️ Screenshots
 
-### The notch
+All screenshots use demo content.
 
-![The notch while music plays](assets/screenshots/notch-media.png)
+### The island
 
-![A notification, with music moved to the side](assets/screenshots/notch-notification.png)
+![The pill while music plays](assets/screenshots/pill-media.png)
 
-### Home
+![Home: the player, the time and your next task](assets/screenshots/panel-home.png)
 
-![Home: the player and one calm line](assets/screenshots/panel-home.png)
+### Search and Paste
 
-### Tasks and Timer
+![Search: apps, files, settings and quick sums](assets/screenshots/search.png)
+
+![Paste from clipboard history or a pinned snippet](assets/screenshots/paste.png)
+
+### Tasks, Focus and Controls
 
 ![Tasks](assets/screenshots/panel-tasks.png)
 
-![Timer](assets/screenshots/panel-timer.png)
+![Focus Sessions](assets/screenshots/panel-focus.png)
+
+![Controls: Wi-Fi, Bluetooth, volume, brightness and battery](assets/screenshots/panel-controls.png)
+
+### Settings
+
+![The Settings window](assets/screenshots/settings.png)
+
+![What's new, shown once after an update](assets/screenshots/whats-new.png)
 
 ### Floating glass
 
@@ -140,8 +153,10 @@ Pill / Orb ──( Click )──► Expanded Surface [ Media | Notifications | S
 
 Download from the [Releases](https://github.com/Sahaj1207/FLOAT/releases/latest) page:
 
-- **Setup program (recommended)**: run `FLOAT_2.0.0_x64-setup.exe`. If Windows SmartScreen appears, choose **More info**, then **Run anyway**.
+- **Setup program (recommended)**: run `FLOAT_<version>_x64-setup.exe`.
 - **MSIX package**: `FLOAT.msix` needs FLOAT's certificate trusted once before it will install on a new PC.
+
+> **"Windows protected your PC"?** FLOAT isn't signed with a paid certificate yet, so Windows doesn't recognise it. Click **More info → Run anyway**. The installer is built from the code in this repository, and GitHub shows each file's SHA-256 checksum so you can check your download.
 
 Step-by-step instructions for both are in [docs/INSTALL.md](docs/INSTALL.md).
 
@@ -191,7 +206,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-msix.ps1
 - **Local Processing**: All media and notification data is processed locally on your machine using standard Windows WinRT and GSMTC APIs.
 - **No Cloud Account**: FLOAT does not require external user accounts, cloud servers, or API keys for its core functionality.
 - **Privacy Mode**: You can disable notification content previews in the Settings tab to hide message titles and bodies while retaining presence dots.
-- **Network Use**: Only three opt-in features talk to the internet, and all are off until you set them up: **Synced Lyrics** sends the playing track's title, artist, album and length to [lrclib.net](https://lrclib.net); **Weather** sends the city name you type to [open-meteo.com](https://open-meteo.com); **Calendar** downloads the private ICS link you paste.
+- **Network Use**: Once a day FLOAT asks GitHub for the latest version number (turn it off in Settings › Updates). Apart from that, only three opt-in features talk to the internet, and all are off until you set them up: **Synced Lyrics** sends the playing track's title, artist, album and length to [lrclib.net](https://lrclib.net); **Weather** sends the city name you type to [open-meteo.com](https://open-meteo.com); **Calendar** downloads the private ICS link you paste.
 - **Wi-Fi passwords** you type to join a network go straight to Windows, which stores the profile; FLOAT keeps nothing.
 - **Clipboard History** stays in memory and is never written to disk. Content that apps flag as private (password managers) is skipped, and turning the feature off clears it.
 - **File Shelf** stores only file paths, in your app data folder; files are never copied or uploaded.
@@ -257,7 +272,7 @@ FLOAT/
 
 ## 📦 Project Status
 
-**FLOAT v2.0.0** is the latest release. It replaces the 1.x pill and orb with the notch design and adds the panel tools (Tray, Tasks, Timer, Controls). Install the MSIX for the full experience: launch at startup, instant notifications and Wi-Fi/Bluetooth toggles need the packaged app.
+**FLOAT v3.1.0** is the latest release: the time on the idle island and a new icon, on top of 3.0, which added a Settings window, data backups with export and import, What's new after updates and Copy diagnostics, on top of 2.3's Clipboard superpowers, mic mute, earbud battery, Quick Notes and commands in search, 2.2's Focus Sessions, the meeting countdown and Copy Text from Anything, and 2.1's search, island shape, downloads and calls, mouse and touch settings, and in-app updates (Settings › Updates). Install the MSIX for the full experience: launch at startup, instant notifications and Wi-Fi/Bluetooth toggles need the packaged app.
 
 Glass needs Windows 11; on Windows 10 the island falls back to a solid tint.
 
